@@ -220,16 +220,15 @@ Use Jupyter IPython to write a text file containing 'hello world' to '/workspace
 
 ----------
 
-Sure, I'll write "hello world" to the file `/workspace/test.txt` using Jupyter IPython. Let's proceed with that.
-
-<execute_ipython>
-with open('/workspace/test.txt', 'w') as file:
-    file.write('hello world')
-</execute_ipython>
+Sure! Let me create a text file with 'hello world' content in '/workspace/test.txt':
+<execute_bash>
+echo 'hello world' > /workspace/test.txt
+</execute_bash>
 
 ----------
 
 OBSERVATION:
-[Code executed successfully with no output]
+
 
 ENVIRONMENT REMINDER: You have 9 turns left to complete the task.
+[Command -1 finished with exit code 0]]
