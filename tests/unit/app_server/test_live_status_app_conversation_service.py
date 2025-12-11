@@ -821,5 +821,6 @@ class TestLiveStatusAppConversationService:
             'Test suffix',
             mock_mcp_config,
             self.mock_user.condenser_max_size,
+            secrets=mock_secrets,
         )
         self.service._finalize_conversation_request.assert_called_once()
