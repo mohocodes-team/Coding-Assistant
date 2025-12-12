@@ -1,37 +1,33 @@
 import { http, delay, HttpResponse } from "msw";
-import {
-  ApiSettings,
-  PostApiSettings,
-} from "#/api/settings-service/settings.types";
 import { GetConfigResponse } from "#/api/option-service/option.types";
 import { DEFAULT_SETTINGS } from "#/services/settings";
-import { Provider } from "#/types/settings";
+import { Provider, Settings } from "#/types/settings";
 
-export const MOCK_DEFAULT_USER_SETTINGS: ApiSettings | PostApiSettings = {
-  llm_model: DEFAULT_SETTINGS.LLM_MODEL,
-  llm_base_url: DEFAULT_SETTINGS.LLM_BASE_URL,
+export const MOCK_DEFAULT_USER_SETTINGS: Settings = {
+  llm_model: DEFAULT_SETTINGS.llm_model,
+  llm_base_url: DEFAULT_SETTINGS.llm_base_url,
   llm_api_key: null,
-  llm_api_key_set: DEFAULT_SETTINGS.LLM_API_KEY_SET,
-  search_api_key_set: DEFAULT_SETTINGS.SEARCH_API_KEY_SET,
-  agent: DEFAULT_SETTINGS.AGENT,
-  language: DEFAULT_SETTINGS.LANGUAGE,
-  confirmation_mode: DEFAULT_SETTINGS.CONFIRMATION_MODE,
-  security_analyzer: DEFAULT_SETTINGS.SECURITY_ANALYZER,
+  llm_api_key_set: DEFAULT_SETTINGS.llm_api_key_set,
+  search_api_key_set: DEFAULT_SETTINGS.search_api_key_set,
+  agent: DEFAULT_SETTINGS.agent,
+  language: DEFAULT_SETTINGS.language,
+  confirmation_mode: DEFAULT_SETTINGS.confirmation_mode,
+  security_analyzer: DEFAULT_SETTINGS.security_analyzer,
   remote_runtime_resource_factor:
-    DEFAULT_SETTINGS.REMOTE_RUNTIME_RESOURCE_FACTOR,
+    DEFAULT_SETTINGS.remote_runtime_resource_factor,
   provider_tokens_set: {},
-  enable_default_condenser: DEFAULT_SETTINGS.ENABLE_DEFAULT_CONDENSER,
-  condenser_max_size: DEFAULT_SETTINGS.CONDENSER_MAX_SIZE,
-  enable_sound_notifications: DEFAULT_SETTINGS.ENABLE_SOUND_NOTIFICATIONS,
+  enable_default_condenser: DEFAULT_SETTINGS.enable_default_condenser,
+  condenser_max_size: DEFAULT_SETTINGS.condenser_max_size,
+  enable_sound_notifications: DEFAULT_SETTINGS.enable_sound_notifications,
   enable_proactive_conversation_starters:
-    DEFAULT_SETTINGS.ENABLE_PROACTIVE_CONVERSATION_STARTERS,
-  enable_solvability_analysis: DEFAULT_SETTINGS.ENABLE_SOLVABILITY_ANALYSIS,
-  user_consents_to_analytics: DEFAULT_SETTINGS.USER_CONSENTS_TO_ANALYTICS,
-  max_budget_per_task: DEFAULT_SETTINGS.MAX_BUDGET_PER_TASK,
+    DEFAULT_SETTINGS.enable_proactive_conversation_starters,
+  enable_solvability_analysis: DEFAULT_SETTINGS.enable_solvability_analysis,
+  user_consents_to_analytics: DEFAULT_SETTINGS.user_consents_to_analytics,
+  max_budget_per_task: DEFAULT_SETTINGS.max_budget_per_task,
 };
 
 const MOCK_USER_PREFERENCES: {
-  settings: ApiSettings | PostApiSettings | null;
+  settings: Settings | null;
 } = {
   settings: null,
 };
@@ -111,7 +107,7 @@ export const SETTINGS_HANDLERS = [
 
       MOCK_USER_PREFERENCES.settings = {
         ...current,
-        ...(body as Partial<ApiSettings>),
+        ...(body as Partial<Settings>),
       };
 
       return HttpResponse.json(null, { status: 200 });
