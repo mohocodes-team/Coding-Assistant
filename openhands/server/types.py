@@ -12,8 +12,11 @@ from typing import Any, ClassVar, Protocol
 
 
 class AppMode(Enum):
-    OSS = 'oss'
+    OPENHANDS = 'oss'
     SAAS = 'saas'
+
+    # Backwards-compatible alias (deprecated): prefer AppMode.OPENHANDS
+    OSS = 'oss'
 
 
 class SessionMiddlewareInterface(Protocol):

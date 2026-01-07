@@ -82,7 +82,7 @@ def get_openhands_provider_base_url() -> str | None:
 
 def _get_default_lifespan():
     # Check legacy parameters for saas mode. If we are in SAAS mode do not apply
-    # OSS alembic migrations
+    # OpenHands alembic migrations
     if 'saas' in (os.getenv('OPENHANDS_CONFIG_CLS') or '').lower():
         return None
     return OssAppLifespanService()
