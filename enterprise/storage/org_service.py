@@ -441,3 +441,42 @@ class OrgService:
                 extra={'user_id': user_id, 'org_id': str(org_id), 'error': str(e)},
             )
             return None
+
+    @staticmethod
+    def get_user_orgs_paginated(
+        user_id: str, page_id: str | None = None, limit: int = 100
+    ):
+        """
+        Get paginated list of organizations for a user.
+
+        Args:
+            user_id: User ID (string that will be converted to UUID)
+            page_id: Optional page ID (offset as string) for pagination
+            limit: Maximum number of organizations to return
+
+        Returns:
+            Tuple of (list of Org objects, next_page_id or None)
+        """
+        logger.debug(
+            'Fetching paginated organizations for user',
+            extra={'user_id': user_id, 'page_id': page_id, 'limit': limit},
+        )
+
+        # Convert user_id string to UUID
+        user_uuid = parse_uuid(user_id)
+
+        # Fetch organizations from store
+        orgs, next_page_id = OrgStore.get_user_orgs_paginated(
+            user_id=user_uuid, page_id=page_id, limit=limit
+        )
+
+        logger.debug(
+            'Retrieved organizations for user',
+            extra={
+                'user_id': user_id,
+                'org_count': len(orgs),
+                'has_more': next_page_id is not None,
+            },
+        )
+
+        return orgs, next_page_id
