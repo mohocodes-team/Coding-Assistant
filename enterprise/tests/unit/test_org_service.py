@@ -18,6 +18,7 @@ with patch('storage.database.engine', create=True), patch(
         LiteLLMIntegrationError,
         OrgDatabaseError,
         OrgNameExistsError,
+        OrgNotFoundError,
     )
     from storage.org import Org
     from storage.org_member import OrgMember
@@ -562,6 +563,102 @@ async def test_get_org_credits_api_failure_returns_none(mock_litellm_api):
 
         # Assert
         assert credits is None
+
+
+@pytest.mark.asyncio
+async def test_get_org_by_id_success(session_maker, owner_role):
+    """
+    GIVEN: Valid org_id and user_id where user is a member
+    WHEN: get_org_by_id is called
+    THEN: Organization is returned successfully
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    org_name = 'Test Organization'
+
+    # Create mock objects
+    mock_org = Org(id=org_id, name=org_name)
+    mock_org_member = OrgMember(
+        org_id=org_id,
+        user_id=user_id,
+        role_id=1,
+        llm_api_key='test-key',
+        status='active',
+    )
+
+    with (
+        patch('storage.org_service.OrgMemberStore.get_org_member') as mock_get_member,
+        patch('storage.org_service.OrgStore.get_org_by_id') as mock_get_org,
+    ):
+        mock_get_member.return_value = mock_org_member
+        mock_get_org.return_value = mock_org
+
+        # Act
+        result = await OrgService.get_org_by_id(org_id, str(user_id))
+
+        # Assert
+        assert result is not None
+        assert result.id == org_id
+        assert result.name == org_name
+        mock_get_member.assert_called_once()
+        mock_get_org.assert_called_once_with(org_id)
+
+
+@pytest.mark.asyncio
+async def test_get_org_by_id_user_not_member():
+    """
+    GIVEN: User is not a member of the organization
+    WHEN: get_org_by_id is called
+    THEN: OrgNotFoundError is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with patch(
+        'storage.org_service.OrgMemberStore.get_org_member',
+        return_value=None,
+    ):
+        # Act & Assert
+        with pytest.raises(OrgNotFoundError) as exc_info:
+            await OrgService.get_org_by_id(org_id, user_id)
+
+        assert str(org_id) in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_get_org_by_id_org_not_found():
+    """
+    GIVEN: User is a member but organization doesn't exist (edge case)
+    WHEN: get_org_by_id is called
+    THEN: OrgNotFoundError is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+
+    # Create mock org member (but org doesn't exist)
+    mock_org_member = OrgMember(
+        org_id=org_id,
+        user_id=user_id,
+        role_id=1,
+        llm_api_key='test-key',
+        status='active',
+    )
+
+    with (
+        patch(
+            'storage.org_service.OrgMemberStore.get_org_member',
+            return_value=mock_org_member,
+        ),
+        patch('storage.org_service.OrgStore.get_org_by_id', return_value=None),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgNotFoundError) as exc_info:
+            await OrgService.get_org_by_id(org_id, str(user_id))
+
+        assert str(org_id) in str(exc_info.value)
 
 
 def test_get_user_orgs_paginated_success(session_maker, mock_litellm_api):

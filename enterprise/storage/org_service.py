@@ -11,6 +11,7 @@ from server.routes.org_models import (
     LiteLLMIntegrationError,
     OrgDatabaseError,
     OrgNameExistsError,
+    OrgNotFoundError,
 )
 from storage.lite_llm_manager import LiteLlmManager
 from storage.org import Org
@@ -480,3 +481,55 @@ class OrgService:
         )
 
         return orgs, next_page_id
+
+    @staticmethod
+    async def get_org_by_id(org_id: UUID, user_id: str) -> Org:
+        """
+        Get organization by ID with membership validation.
+
+        This method verifies that the user is a member of the organization
+        before returning the organization details.
+
+        Args:
+            org_id: Organization ID
+            user_id: User ID (string that will be converted to UUID)
+
+        Returns:
+            Org: The organization object
+
+        Raises:
+            OrgNotFoundError: If organization not found or user is not a member
+        """
+        logger.info(
+            'Retrieving organization',
+            extra={'user_id': user_id, 'org_id': str(org_id)},
+        )
+
+        # Verify user is a member of the organization
+        org_member = OrgMemberStore.get_org_member(org_id, parse_uuid(user_id))
+        if not org_member:
+            logger.warning(
+                'User is not a member of organization or organization does not exist',
+                extra={'user_id': user_id, 'org_id': str(org_id)},
+            )
+            raise OrgNotFoundError(str(org_id))
+
+        # Retrieve organization
+        org = OrgStore.get_org_by_id(org_id)
+        if not org:
+            logger.error(
+                'Organization not found despite valid membership',
+                extra={'user_id': user_id, 'org_id': str(org_id)},
+            )
+            raise OrgNotFoundError(str(org_id))
+
+        logger.info(
+            'Successfully retrieved organization',
+            extra={
+                'org_id': str(org.id),
+                'org_name': org.name,
+                'user_id': user_id,
+            },
+        )
+
+        return org

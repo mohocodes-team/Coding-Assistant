@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from server.email_validation import get_admin_user_id
@@ -7,6 +8,7 @@ from server.routes.org_models import (
     OrgCreate,
     OrgDatabaseError,
     OrgNameExistsError,
+    OrgNotFoundError,
     OrgPage,
     OrgResponse,
 )
@@ -160,6 +162,63 @@ async def create_org(
         logger.exception(
             'Unexpected error creating organization',
             extra={'user_id': user_id, 'error': str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='An unexpected error occurred',
+        )
+
+
+@org_router.get('/{org_id}', response_model=OrgResponse, status_code=status.HTTP_200_OK)
+async def get_org(
+    org_id: UUID,
+    user_id: str = Depends(get_user_id),
+) -> OrgResponse:
+    """Get organization details by ID.
+
+    This endpoint allows authenticated users who are members of an organization
+    to retrieve its details. Only members of the organization can access this endpoint.
+
+    Args:
+        org_id: Organization ID (UUID)
+        user_id: Authenticated user ID (injected by dependency)
+
+    Returns:
+        OrgResponse: The organization details
+
+    Raises:
+        HTTPException: 422 if org_id is not a valid UUID (handled by FastAPI)
+        HTTPException: 404 if organization not found or user is not a member
+        HTTPException: 500 if retrieval fails
+    """
+    logger.info(
+        'Retrieving organization details',
+        extra={
+            'user_id': user_id,
+            'org_id': str(org_id),
+        },
+    )
+
+    try:
+        # Use service layer to get organization with membership validation
+        org = await OrgService.get_org_by_id(
+            org_id=org_id,
+            user_id=user_id,
+        )
+
+        # Retrieve credits from LiteLLM
+        credits = await OrgService.get_org_credits(user_id, org.id)
+
+        return OrgResponse.from_org(org, credits=credits)
+    except OrgNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.exception(
+            'Unexpected error retrieving organization',
+            extra={'user_id': user_id, 'org_id': str(org_id), 'error': str(e)},
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

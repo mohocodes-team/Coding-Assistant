@@ -28,6 +28,14 @@ class OrgDatabaseError(OrgCreationError):
     pass
 
 
+class OrgNotFoundError(Exception):
+    """Raised when organization is not found or user doesn't have access."""
+
+    def __init__(self, org_id: str):
+        self.org_id = org_id
+        super().__init__(f'Organization with id "{org_id}" not found')
+
+
 class OrgCreate(BaseModel):
     """Request model for creating a new organization."""
 

@@ -20,6 +20,7 @@ with patch('storage.database.engine', create=True), patch(
         LiteLLMIntegrationError,
         OrgDatabaseError,
         OrgNameExistsError,
+        OrgNotFoundError,
     )
     from server.routes.orgs import org_router
     from storage.org import Org
@@ -650,3 +651,274 @@ async def test_list_user_orgs_all_fields_present(mock_app_list):
         assert org_data['enable_solvability_analysis'] is True
         assert org_data['v1_enabled'] is True
         assert org_data['credits'] is None
+
+
+@pytest.fixture
+def mock_app_with_get_user_id():
+    """Create a test FastAPI app with organization routes and mocked get_user_id auth."""
+    app = FastAPI()
+    app.include_router(org_router)
+
+    # Override the auth dependency to return a test user
+    def mock_get_user_id():
+        return 'test-user-123'
+
+    app.dependency_overrides[get_user_id] = mock_get_user_id
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_get_org_success(mock_app_with_get_user_id):
+    """
+    GIVEN: Valid org_id and authenticated user who is a member
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: Organization details are returned with 200 status
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    mock_org = Org(
+        id=org_id,
+        name='Test Organization',
+        contact_name='John Doe',
+        contact_email='john@example.com',
+        org_version=5,
+        default_llm_model='claude-opus-4-5-20251101',
+        enable_default_condenser=True,
+        enable_proactive_conversation_starters=True,
+    )
+
+    with (
+        patch(
+            'server.routes.orgs.OrgService.get_org_by_id',
+            AsyncMock(return_value=mock_org),
+        ),
+        patch(
+            'server.routes.orgs.OrgService.get_org_credits',
+            AsyncMock(return_value=75.5),
+        ),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data['id'] == str(org_id)
+        assert response_data['name'] == 'Test Organization'
+        assert response_data['contact_name'] == 'John Doe'
+        assert response_data['contact_email'] == 'john@example.com'
+        assert response_data['credits'] == 75.5
+        assert response_data['org_version'] == 5
+
+
+@pytest.mark.asyncio
+async def test_get_org_user_not_member(mock_app_with_get_user_id):
+    """
+    GIVEN: User is not a member of the organization
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: 404 Not Found error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.get_org_by_id',
+        AsyncMock(side_effect=OrgNotFoundError(str(org_id))),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert 'not found' in response.json()['detail'].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_org_not_found(mock_app_with_get_user_id):
+    """
+    GIVEN: Organization does not exist
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: 404 Not Found error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.get_org_by_id',
+        AsyncMock(side_effect=OrgNotFoundError(str(org_id))),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_get_org_invalid_uuid(mock_app_with_get_user_id):
+    """
+    GIVEN: Invalid UUID format for org_id
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: 422 Unprocessable Entity error is returned
+    """
+    # Arrange
+    invalid_org_id = 'not-a-valid-uuid'
+
+    client = TestClient(mock_app_with_get_user_id)
+
+    # Act
+    response = client.get(f'/api/organizations/{invalid_org_id}')
+
+    # Assert
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_get_org_unauthorized():
+    """
+    GIVEN: User is not authenticated
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: 401 Unauthorized error is returned
+    """
+    # Arrange
+    app = FastAPI()
+    app.include_router(org_router)
+
+    # Override to simulate unauthenticated user
+    async def mock_unauthenticated():
+        raise HTTPException(status_code=401, detail='User not authenticated')
+
+    app.dependency_overrides[get_user_id] = mock_unauthenticated
+
+    org_id = uuid.uuid4()
+    client = TestClient(app)
+
+    # Act
+    response = client.get(f'/api/organizations/{org_id}')
+
+    # Assert
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio
+async def test_get_org_unexpected_error(mock_app_with_get_user_id):
+    """
+    GIVEN: Unexpected error occurs during retrieval
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: 500 Internal Server Error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.get_org_by_id',
+        AsyncMock(side_effect=RuntimeError('Unexpected database error')),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert 'unexpected error' in response.json()['detail'].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_org_with_credits_none(mock_app_with_get_user_id):
+    """
+    GIVEN: Organization exists but credits retrieval returns None
+    WHEN: GET /api/organizations/{org_id} is called
+    THEN: Organization is returned with credits as None
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    mock_org = Org(
+        id=org_id,
+        name='Test Organization',
+        contact_name='John Doe',
+        contact_email='john@example.com',
+        org_version=5,
+        default_llm_model='claude-opus-4-5-20251101',
+        enable_default_condenser=True,
+        enable_proactive_conversation_starters=True,
+    )
+
+    with (
+        patch(
+            'server.routes.orgs.OrgService.get_org_by_id',
+            AsyncMock(return_value=mock_org),
+        ),
+        patch(
+            'server.routes.orgs.OrgService.get_org_credits',
+            AsyncMock(return_value=None),
+        ),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data['credits'] is None
+
+
+@pytest.mark.asyncio
+async def test_get_org_sensitive_fields_not_exposed(mock_app_with_get_user_id):
+    """
+    GIVEN: Organization is retrieved successfully
+    WHEN: Response is returned
+    THEN: Sensitive fields (API keys) are not exposed
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    mock_org = Org(
+        id=org_id,
+        name='Test Organization',
+        contact_name='John Doe',
+        contact_email='john@example.com',
+        org_version=5,
+        default_llm_model='claude-opus-4-5-20251101',
+        search_api_key='secret-search-key-123',  # Should not be exposed
+        sandbox_api_key='secret-sandbox-key-123',  # Should not be exposed
+        enable_default_condenser=True,
+        enable_proactive_conversation_starters=True,
+    )
+
+    with (
+        patch(
+            'server.routes.orgs.OrgService.get_org_by_id',
+            AsyncMock(return_value=mock_org),
+        ),
+        patch(
+            'server.routes.orgs.OrgService.get_org_credits',
+            AsyncMock(return_value=100.0),
+        ),
+    ):
+        client = TestClient(mock_app_with_get_user_id)
+
+        # Act
+        response = client.get(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Verify sensitive fields are not in response or are None
+        assert (
+            'search_api_key' not in response_data
+            or response_data.get('search_api_key') is None
+        )
+        assert (
+            'sandbox_api_key' not in response_data
+            or response_data.get('sandbox_api_key') is None
+        )
