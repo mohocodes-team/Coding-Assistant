@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from server.email_validation import get_admin_user_id
 from server.routes.org_models import (
     LiteLLMIntegrationError,
+    OrgAuthorizationError,
     OrgCreate,
     OrgDatabaseError,
     OrgNameExistsError,
@@ -218,6 +219,101 @@ async def get_org(
     except Exception as e:
         logger.exception(
             'Unexpected error retrieving organization',
+            extra={'user_id': user_id, 'org_id': str(org_id), 'error': str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='An unexpected error occurred',
+        )
+
+
+@org_router.delete('/{org_id}', status_code=status.HTTP_200_OK)
+async def delete_org(
+    org_id: UUID,
+    user_id: str = Depends(get_admin_user_id),
+) -> dict:
+    """Delete an organization.
+
+    This endpoint allows authenticated organization owners to delete their organization.
+    All associated data including organization members, conversations, billing data,
+    and external LiteLLM team resources will be permanently removed.
+
+    Args:
+        org_id: Organization ID to delete
+        user_id: Authenticated user ID (injected by dependency)
+
+    Returns:
+        dict: Confirmation message with deleted organization details
+
+    Raises:
+        HTTPException: 403 if user is not the organization owner
+        HTTPException: 404 if organization not found
+        HTTPException: 500 if deletion fails
+    """
+    logger.info(
+        'Organization deletion requested',
+        extra={
+            'user_id': user_id,
+            'org_id': str(org_id),
+        },
+    )
+
+    try:
+        # Use service layer to delete organization with cleanup
+        deleted_org = await OrgService.delete_org_with_cleanup(
+            user_id=user_id,
+            org_id=org_id,
+        )
+
+        logger.info(
+            'Organization deletion completed successfully',
+            extra={
+                'user_id': user_id,
+                'org_id': str(org_id),
+                'org_name': deleted_org.name,
+            },
+        )
+
+        return {
+            'message': 'Organization deleted successfully',
+            'organization': {
+                'id': str(deleted_org.id),
+                'name': deleted_org.name,
+                'contact_name': deleted_org.contact_name,
+                'contact_email': deleted_org.contact_email,
+            },
+        }
+
+    except OrgNotFoundError as e:
+        logger.warning(
+            'Organization not found for deletion',
+            extra={'user_id': user_id, 'org_id': str(org_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except OrgAuthorizationError as e:
+        logger.warning(
+            'User not authorized to delete organization',
+            extra={'user_id': user_id, 'org_id': str(org_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+    except OrgDatabaseError as e:
+        logger.error(
+            'Database error during organization deletion',
+            extra={'user_id': user_id, 'org_id': str(org_id), 'error': str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Failed to delete organization',
+        )
+    except Exception as e:
+        logger.exception(
+            'Unexpected error during organization deletion',
             extra={'user_id': user_id, 'org_id': str(org_id), 'error': str(e)},
         )
         raise HTTPException(

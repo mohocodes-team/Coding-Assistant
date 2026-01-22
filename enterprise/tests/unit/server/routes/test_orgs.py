@@ -18,6 +18,7 @@ with patch('storage.database.engine', create=True), patch(
     from server.email_validation import get_admin_user_id
     from server.routes.org_models import (
         LiteLLMIntegrationError,
+        OrgAuthorizationError,
         OrgDatabaseError,
         OrgNameExistsError,
         OrgNotFoundError,
@@ -922,3 +923,211 @@ async def test_get_org_sensitive_fields_not_exposed(mock_app_with_get_user_id):
             'sandbox_api_key' not in response_data
             or response_data.get('sandbox_api_key') is None
         )
+
+
+@pytest.mark.asyncio
+async def test_delete_org_success(mock_app):
+    """
+    GIVEN: Valid organization deletion request by owner
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: Organization is deleted and 200 status with confirmation is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    mock_deleted_org = Org(
+        id=org_id,
+        name='Deleted Organization',
+        contact_name='John Doe',
+        contact_email='john@example.com',
+    )
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(return_value=mock_deleted_org),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data['message'] == 'Organization deleted successfully'
+        assert response_data['organization']['id'] == str(org_id)
+        assert response_data['organization']['name'] == 'Deleted Organization'
+        assert response_data['organization']['contact_name'] == 'John Doe'
+        assert response_data['organization']['contact_email'] == 'john@example.com'
+
+
+@pytest.mark.asyncio
+async def test_delete_org_not_found(mock_app):
+    """
+    GIVEN: Organization does not exist
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 404 Not Found error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(side_effect=OrgNotFoundError(str(org_id))),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert str(org_id) in response.json()['detail']
+
+
+@pytest.mark.asyncio
+async def test_delete_org_not_owner(mock_app):
+    """
+    GIVEN: User is not the organization owner
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 403 Forbidden error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(
+            side_effect=OrgAuthorizationError(
+                'Only organization owners can delete organizations'
+            )
+        ),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'organization owners' in response.json()['detail']
+
+
+@pytest.mark.asyncio
+async def test_delete_org_not_member(mock_app):
+    """
+    GIVEN: User is not a member of the organization
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 403 Forbidden error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(
+            side_effect=OrgAuthorizationError(
+                'User is not a member of this organization'
+            )
+        ),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert 'not a member' in response.json()['detail']
+
+
+@pytest.mark.asyncio
+async def test_delete_org_database_failure(mock_app):
+    """
+    GIVEN: Database operation fails during deletion
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 500 Internal Server Error is returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(side_effect=OrgDatabaseError('Database connection failed')),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json()['detail'] == 'Failed to delete organization'
+
+
+@pytest.mark.asyncio
+async def test_delete_org_unexpected_error(mock_app):
+    """
+    GIVEN: Unexpected error occurs during deletion
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 500 Internal Server Error is returned with generic message
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(side_effect=RuntimeError('Unexpected system error')),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert 'unexpected error' in response.json()['detail'].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_org_invalid_uuid(mock_app):
+    """
+    GIVEN: Invalid UUID format in URL
+    WHEN: DELETE /api/organizations/{invalid_uuid} is called
+    THEN: 422 validation error is returned
+    """
+    # Arrange
+    invalid_uuid = 'not-a-valid-uuid'
+    client = TestClient(mock_app)
+
+    # Act
+    response = client.delete(f'/api/organizations/{invalid_uuid}')
+
+    # Assert
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_delete_org_unauthorized():
+    """
+    GIVEN: User is not authenticated
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 401 Unauthorized error is returned
+    """
+    # Arrange
+    app = FastAPI()
+    app.include_router(org_router)
+
+    # Override to simulate unauthenticated user
+    async def mock_unauthenticated():
+        raise HTTPException(status_code=401, detail='User not authenticated')
+
+    app.dependency_overrides[get_admin_user_id] = mock_unauthenticated
+
+    org_id = uuid.uuid4()
+    client = TestClient(app)
+
+    # Act
+    response = client.delete(f'/api/organizations/{org_id}')
+
+    # Assert
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED

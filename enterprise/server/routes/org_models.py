@@ -28,6 +28,19 @@ class OrgDatabaseError(OrgCreationError):
     pass
 
 
+class OrgDeletionError(Exception):
+    """Base exception for organization deletion errors."""
+
+    pass
+
+
+class OrgAuthorizationError(OrgDeletionError):
+    """Raised when user is not authorized to delete organization."""
+
+    def __init__(self, message: str = 'Not authorized to delete organization'):
+        super().__init__(message)
+
+
 class OrgNotFoundError(Exception):
     """Raised when organization is not found or user doesn't have access."""
 

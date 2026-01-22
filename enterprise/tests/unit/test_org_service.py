@@ -16,6 +16,7 @@ with patch('storage.database.engine', create=True), patch(
 ):
     from server.routes.org_models import (
         LiteLLMIntegrationError,
+        OrgAuthorizationError,
         OrgDatabaseError,
         OrgNameExistsError,
         OrgNotFoundError,
@@ -776,3 +777,258 @@ def test_get_user_orgs_paginated_invalid_user_id_format():
         OrgService.get_user_orgs_paginated(
             user_id=invalid_user_id, page_id=None, limit=10
         )
+
+
+def test_verify_owner_authorization_success(session_maker, owner_role):
+    """
+    GIVEN: User is owner of the organization
+    WHEN: verify_owner_authorization is called
+    THEN: No exception is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    mock_org = Org(
+        id=org_id,
+        name='Test Org',
+        contact_name='John',
+        contact_email='john@example.com',
+    )
+    mock_org_member = OrgMember(
+        org_id=org_id,
+        user_id=uuid.UUID(user_id),
+        role_id=1,
+        status='active',
+        llm_api_key='key',
+    )
+
+    # Create a mock role to avoid detached instance issues
+    mock_owner_role = MagicMock()
+    mock_owner_role.name = 'owner'
+    mock_owner_role.id = 1
+
+    with (
+        patch('storage.org_service.OrgStore.get_org_by_id', return_value=mock_org),
+        patch(
+            'storage.org_service.OrgMemberStore.get_org_member',
+            return_value=mock_org_member,
+        ),
+        patch(
+            'storage.org_service.RoleStore.get_role_by_id', return_value=mock_owner_role
+        ),
+    ):
+        # Act & Assert - should not raise
+        OrgService.verify_owner_authorization(user_id, org_id)
+
+
+def test_verify_owner_authorization_org_not_found():
+    """
+    GIVEN: Organization does not exist
+    WHEN: verify_owner_authorization is called
+    THEN: OrgNotFoundError is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with patch('storage.org_service.OrgStore.get_org_by_id', return_value=None):
+        # Act & Assert
+        with pytest.raises(OrgNotFoundError) as exc_info:
+            OrgService.verify_owner_authorization(user_id, org_id)
+
+        assert str(org_id) in str(exc_info.value)
+
+
+def test_verify_owner_authorization_user_not_member(session_maker, owner_role):
+    """
+    GIVEN: User is not a member of the organization
+    WHEN: verify_owner_authorization is called
+    THEN: OrgAuthorizationError is raised with member message
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    mock_org = Org(
+        id=org_id,
+        name='Test Org',
+        contact_name='John',
+        contact_email='john@example.com',
+    )
+
+    with (
+        patch('storage.org_service.OrgStore.get_org_by_id', return_value=mock_org),
+        patch('storage.org_service.OrgMemberStore.get_org_member', return_value=None),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgAuthorizationError) as exc_info:
+            OrgService.verify_owner_authorization(user_id, org_id)
+
+        assert 'not a member' in str(exc_info.value)
+
+
+def test_verify_owner_authorization_user_not_owner(session_maker):
+    """
+    GIVEN: User is member but not owner (admin role)
+    WHEN: verify_owner_authorization is called
+    THEN: OrgAuthorizationError is raised with owner message
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    mock_org = Org(
+        id=org_id,
+        name='Test Org',
+        contact_name='John',
+        contact_email='john@example.com',
+    )
+    mock_org_member = OrgMember(
+        org_id=org_id,
+        user_id=uuid.UUID(user_id),
+        role_id=2,
+        status='active',
+        llm_api_key='key',
+    )
+    admin_role = Role(id=2, name='admin', rank=20)
+
+    with (
+        patch('storage.org_service.OrgStore.get_org_by_id', return_value=mock_org),
+        patch(
+            'storage.org_service.OrgMemberStore.get_org_member',
+            return_value=mock_org_member,
+        ),
+        patch('storage.org_service.RoleStore.get_role_by_id', return_value=admin_role),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgAuthorizationError) as exc_info:
+            OrgService.verify_owner_authorization(user_id, org_id)
+
+        assert 'Only organization owners' in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_delete_org_with_cleanup_success(session_maker, owner_role):
+    """
+    GIVEN: User is organization owner and deletion succeeds
+    WHEN: delete_org_with_cleanup is called
+    THEN: Organization is deleted and returned
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    mock_deleted_org = Org(
+        id=org_id,
+        name='Deleted Organization',
+        contact_name='John Doe',
+        contact_email='john@example.com',
+    )
+
+    with (
+        patch('storage.org_service.OrgService.verify_owner_authorization'),
+        patch(
+            'storage.org_service.OrgStore.delete_org_cascade',
+            AsyncMock(return_value=mock_deleted_org),
+        ),
+    ):
+        # Act
+        result = await OrgService.delete_org_with_cleanup(user_id, org_id)
+
+    # Assert
+    assert result is not None
+    assert result.id == org_id
+    assert result.name == 'Deleted Organization'
+
+
+@pytest.mark.asyncio
+async def test_delete_org_with_cleanup_authorization_failure():
+    """
+    GIVEN: User is not authorized to delete organization
+    WHEN: delete_org_with_cleanup is called
+    THEN: OrgAuthorizationError is raised and no deletion occurs
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with patch(
+        'storage.org_service.OrgService.verify_owner_authorization',
+        side_effect=OrgAuthorizationError('Not authorized'),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgAuthorizationError):
+            await OrgService.delete_org_with_cleanup(user_id, org_id)
+
+
+@pytest.mark.asyncio
+async def test_delete_org_with_cleanup_org_not_found():
+    """
+    GIVEN: Organization does not exist
+    WHEN: delete_org_with_cleanup is called
+    THEN: OrgNotFoundError is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with patch(
+        'storage.org_service.OrgService.verify_owner_authorization',
+        side_effect=OrgNotFoundError(str(org_id)),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgNotFoundError):
+            await OrgService.delete_org_with_cleanup(user_id, org_id)
+
+
+@pytest.mark.asyncio
+async def test_delete_org_with_cleanup_database_failure(session_maker, owner_role):
+    """
+    GIVEN: Authorization succeeds but database deletion fails
+    WHEN: delete_org_with_cleanup is called
+    THEN: OrgDatabaseError is raised
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with (
+        patch('storage.org_service.OrgService.verify_owner_authorization'),
+        patch(
+            'storage.org_service.OrgStore.delete_org_cascade',
+            AsyncMock(side_effect=Exception('Database connection failed')),
+        ),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgDatabaseError) as exc_info:
+            await OrgService.delete_org_with_cleanup(user_id, org_id)
+
+        assert 'Database connection failed' in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_delete_org_with_cleanup_unexpected_none_result(
+    session_maker, owner_role
+):
+    """
+    GIVEN: Authorization succeeds but delete_org_cascade returns None
+    WHEN: delete_org_with_cleanup is called
+    THEN: OrgDatabaseError is raised with not found message
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    user_id = str(uuid.uuid4())
+
+    with (
+        patch('storage.org_service.OrgService.verify_owner_authorization'),
+        patch(
+            'storage.org_service.OrgStore.delete_org_cascade',
+            AsyncMock(return_value=None),
+        ),
+    ):
+        # Act & Assert
+        with pytest.raises(OrgDatabaseError) as exc_info:
+            await OrgService.delete_org_with_cleanup(user_id, org_id)
+
+        assert 'not found during deletion' in str(exc_info.value)
