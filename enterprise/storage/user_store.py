@@ -420,7 +420,6 @@ class UserStore:
 
             # For new sign-ups after migration, user_settings won't exist
             # Fall back to getting data from org_members
-            is_new_signup = False
             if not user_settings:
                 logger.info(
                     'user_store:downgrade_user:user_settings_not_found_checking_org_members',
@@ -443,7 +442,6 @@ class UserStore:
                     return None
 
                 org_member = org_members[0]
-                is_new_signup = True
 
                 # Create a new user_settings entry from OrgMember, User, and Org data
                 # This is needed for new sign-ups who don't have user_settings
@@ -465,27 +463,25 @@ class UserStore:
                 extra={'user_id': user_id},
             )
 
-            # Get the API keys for LiteLLM downgrade
-            if is_new_signup:
-                # For new signups, we already have decrypted values in user_settings
-                decrypted_user_settings = user_settings
-            else:
-                # For migrated users, decrypt the legacy model
-                kwargs = decrypt_legacy_model(
-                    [
-                        'llm_api_key',
-                        'llm_api_key_for_byor',
-                        'search_api_key',
-                        'sandbox_api_key',
-                    ],
-                    user_settings,
-                )
-                decrypted_user_settings = UserSettings(**kwargs)
+            encrypted_fields = [
+                'llm_api_key',
+                'llm_api_key_for_byor',
+                'search_api_key',
+                'sandbox_api_key',
+            ]
+            for field in encrypted_fields:
+                value = getattr(user_settings, field, None)
+                if value:
+                    try:
+                        value = decrypt_legacy_value(value)
+                        setattr(user_settings, field, value)
+                    except Exception:
+                        pass
 
             await LiteLlmManager.downgrade_entries(
                 str(org.id),
                 user_id,
-                decrypted_user_settings,
+                user_settings,
             )
             logger.debug(
                 'user_store:downgrade_user:done_litellm_downgrade_entries',
