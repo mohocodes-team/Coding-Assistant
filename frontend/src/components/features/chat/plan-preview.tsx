@@ -6,6 +6,7 @@ import { USE_PLANNING_AGENT } from "#/utils/feature-flags";
 import { Typography } from "#/ui/typography";
 import { I18nKey } from "#/i18n/declaration";
 import { MarkdownRenderer } from "#/components/features/markdown/markdown-renderer";
+import { cn } from "#/utils/utils";
 import { useSelectConversationTab } from "#/hooks/use-select-conversation-tab";
 import { planHeadings } from "#/components/features/markdown/plan-headings";
 
@@ -15,10 +16,16 @@ interface PlanPreviewProps {
   /** Raw plan content from PLAN.md file */
   planContent?: string | null;
   onBuildClick?: () => void;
+  /** Whether the Build button should be disabled (e.g., while streaming) */
+  isBuildDisabled?: boolean;
 }
 
 /* eslint-disable i18next/no-literal-string */
-export function PlanPreview({ planContent, onBuildClick }: PlanPreviewProps) {
+export function PlanPreview({
+  planContent,
+  onBuildClick,
+  isBuildDisabled,
+}: PlanPreviewProps) {
   const { t } = useTranslation();
   const { selectTab } = useSelectConversationTab();
 
@@ -90,7 +97,13 @@ export function PlanPreview({ planContent, onBuildClick }: PlanPreviewProps) {
         <button
           type="button"
           onClick={onBuildClick}
-          className="bg-white flex items-center justify-center h-[26px] px-2 rounded-[4px] w-[93px] hover:opacity-90 transition-opacity cursor-pointer"
+          disabled={isBuildDisabled}
+          className={cn(
+            "bg-white flex items-center justify-center h-[26px] px-2 rounded-[4px] w-[93px] transition-opacity",
+            isBuildDisabled
+              ? "opacity-50 cursor-not-allowed"
+              : "hover:opacity-90 cursor-pointer",
+          )}
           data-testid="plan-preview-build-button"
         >
           <Typography.Text className="font-medium text-[14px] text-black leading-5">
