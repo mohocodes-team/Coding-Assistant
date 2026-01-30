@@ -87,6 +87,7 @@ describe("useHandlePlanClick", () => {
       rightPanelShown: true,
       unpinnedTabs: [],
       subConversationTaskId: null,
+      conversationMode: "code",
     });
   });
 
@@ -115,6 +116,7 @@ describe("useHandlePlanClick", () => {
         rightPanelShown: true,
         unpinnedTabs: [],
         subConversationTaskId: storedTaskId,
+        conversationMode: "code",
       });
 
       renderHook(() => useHandlePlanClick());
@@ -152,6 +154,7 @@ describe("useHandlePlanClick", () => {
         rightPanelShown: true,
         unpinnedTabs: [],
         subConversationTaskId: storedTaskId,
+        conversationMode: "code",
       });
 
       renderHook(() => useHandlePlanClick());
