@@ -1,221 +1,112 @@
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import React from "react";
 import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useSubConversationTaskPolling } from "#/hooks/query/use-sub-conversation-task-polling";
+import React from "react";
 import V1ConversationService from "#/api/conversation-service/v1-conversation-service.api";
-import { setConversationState } from "#/utils/conversation-local-storage";
-import { useConversationStore } from "#/stores/conversation-store";
+import { useSubConversationTaskPolling } from "#/hooks/query/use-sub-conversation-task-polling";
 import type { V1AppConversationStartTask } from "#/api/conversation-service/v1-conversation-service.types";
 
-// Mock dependencies
-vi.mock("#/api/conversation-service/v1-conversation-service.api");
-vi.mock("#/utils/conversation-local-storage");
-vi.mock("#/stores/conversation-store");
+// Mock the underlying service
+vi.mock("#/api/conversation-service/v1-conversation-service.api", () => ({
+  default: {
+    getStartTask: vi.fn(),
+  },
+}));
 
-const mockSetSubConversationTaskId = vi.fn();
-const mockInvalidateQueries = vi.fn();
+describe("useSubConversationTaskPolling", () => {
+  let queryClient: QueryClient;
 
-// Helper function to create properly typed mock return values
-function asMockReturnValue<T>(value: Partial<T>): T {
-  return value as T;
-}
+  const createWrapper = () => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
 
-function makeTask(
-  status: V1AppConversationStartTask["status"],
-  appConversationId: string | null = null,
-): V1AppConversationStartTask {
-  return {
+    return ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+
+  const createMockTask = (
+    status: V1AppConversationStartTask["status"],
+    appConversationId: string | null = null,
+  ): V1AppConversationStartTask => ({
     id: "task-123",
-    created_by_user_id: "user-123",
+    created_by_user_id: "user-1",
     status,
     detail: null,
     app_conversation_id: appConversationId,
     sandbox_id: null,
     agent_server_url: null,
-    request: {
-      agent_type: "plan",
-      parent_conversation_id: "parent-conv-123",
-    },
+    request: {},
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  };
-}
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
   });
-}
 
-function wrapper({ children }: { children: React.ReactNode }) {
-  const queryClient = createQueryClient();
-  queryClient.invalidateQueries = mockInvalidateQueries;
-  return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-}
-
-describe("useSubConversationTaskPolling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useConversationStore).mockReturnValue(
-      asMockReturnValue<ReturnType<typeof useConversationStore>>({
-        setSubConversationTaskId: mockSetSubConversationTaskId,
-      }),
-    );
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    queryClient?.clear();
   });
 
-  describe("when task status is READY", () => {
-    it("clears subConversationTaskId from localStorage and store when task completes successfully", async () => {
-      const parentConversationId = "parent-conv-123";
-      const taskId = "task-123";
-      const appConversationId = "sub-conv-456";
+  it("should return task status when task is READY", async () => {
+    // Arrange
+    const mockTask = createMockTask("READY", "sub-conversation-123");
+    vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(mockTask);
 
-      const readyTask = makeTask("READY", appConversationId);
-      vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(
-        readyTask,
-      );
+    // Act
+    const { result } = renderHook(
+      () =>
+        useSubConversationTaskPolling("task-123", "parent-conversation-456"),
+      { wrapper: createWrapper() },
+    );
 
-      renderHook(
-        () => useSubConversationTaskPolling(taskId, parentConversationId),
-        { wrapper },
-      );
-
-      await waitFor(() => {
-        expect(setConversationState).toHaveBeenCalledWith(
-          parentConversationId,
-          { subConversationTaskId: null },
-        );
-      });
-
-      expect(mockSetSubConversationTaskId).toHaveBeenCalledWith(null);
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({
-        queryKey: ["user", "conversation", parentConversationId],
-      });
+    // Assert
+    await waitFor(() => {
+      expect(result.current.taskStatus).toBe("READY");
     });
-
-    it("invalidates parent conversation cache when task is READY", async () => {
-      const parentConversationId = "parent-conv-123";
-      const taskId = "task-123";
-      const appConversationId = "sub-conv-456";
-
-      const readyTask = makeTask("READY", appConversationId);
-      vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(
-        readyTask,
-      );
-
-      renderHook(
-        () => useSubConversationTaskPolling(taskId, parentConversationId),
-        { wrapper },
-      );
-
-      await waitFor(() => {
-        expect(mockInvalidateQueries).toHaveBeenCalled();
-      });
-
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({
-        queryKey: ["user", "conversation", parentConversationId],
-      });
-    });
+    expect(result.current.subConversationId).toBe("sub-conversation-123");
+    expect(V1ConversationService.getStartTask).toHaveBeenCalledWith("task-123");
   });
 
-  describe("when task status is ERROR", () => {
-    it("clears subConversationTaskId from localStorage and store on error", async () => {
-      const parentConversationId = "parent-conv-123";
-      const taskId = "task-123";
+  it("should not poll when taskId is null", async () => {
+    // Arrange
+    vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(null);
 
-      const errorTask = makeTask("ERROR", null);
-      vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(
-        errorTask,
-      );
+    // Act
+    const { result } = renderHook(
+      () => useSubConversationTaskPolling(null, "parent-conversation-456"),
+      { wrapper: createWrapper() },
+    );
 
-      renderHook(
-        () => useSubConversationTaskPolling(taskId, parentConversationId),
-        { wrapper },
-      );
-
-      await waitFor(() => {
-        expect(setConversationState).toHaveBeenCalledWith(
-          parentConversationId,
-          { subConversationTaskId: null },
-        );
-      });
-
-      expect(mockSetSubConversationTaskId).toHaveBeenCalledWith(null);
-      expect(mockInvalidateQueries).not.toHaveBeenCalled();
+    // Assert - wait a bit to ensure no calls are made
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100);
     });
+    expect(V1ConversationService.getStartTask).not.toHaveBeenCalled();
+    expect(result.current.taskStatus).toBeUndefined();
   });
 
-  describe("when task is still in progress", () => {
-    it("does not clear subConversationTaskId when task status is WORKING", async () => {
-      const parentConversationId = "parent-conv-123";
-      const taskId = "task-123";
+  it("should not poll when parentConversationId is null", async () => {
+    // Arrange
+    vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(null);
 
-      const workingTask = makeTask("WORKING", null);
-      vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(
-        workingTask,
-      );
+    // Act
+    const { result } = renderHook(
+      () => useSubConversationTaskPolling("task-123", null),
+      { wrapper: createWrapper() },
+    );
 
-      renderHook(
-        () => useSubConversationTaskPolling(taskId, parentConversationId),
-        { wrapper },
-      );
-
-      // Wait a bit to ensure useEffect has run
-      await waitFor(() => {
-        expect(V1ConversationService.getStartTask).toHaveBeenCalled();
-      });
-
-      // Should not clear anything while task is in progress
-      expect(setConversationState).not.toHaveBeenCalled();
-      expect(mockSetSubConversationTaskId).not.toHaveBeenCalled();
+    // Assert - wait a bit to ensure no calls are made
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100);
     });
-
-    it("does not clear subConversationTaskId when task status is WAITING_FOR_SANDBOX", async () => {
-      const parentConversationId = "parent-conv-123";
-      const taskId = "task-123";
-
-      const waitingTask = makeTask("WAITING_FOR_SANDBOX", null);
-      vi.mocked(V1ConversationService.getStartTask).mockResolvedValue(
-        waitingTask,
-      );
-
-      renderHook(
-        () => useSubConversationTaskPolling(taskId, parentConversationId),
-        { wrapper },
-      );
-
-      await waitFor(() => {
-        expect(V1ConversationService.getStartTask).toHaveBeenCalled();
-      });
-
-      expect(setConversationState).not.toHaveBeenCalled();
-      expect(mockSetSubConversationTaskId).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("when parentConversationId is null", () => {
-    it("does not clear subConversationTaskId or invalidate queries", () => {
-      const taskId = "task-123";
-
-      renderHook(() => useSubConversationTaskPolling(taskId, null), {
-        wrapper,
-      });
-
-      // Query is disabled when parentConversationId is null, so getStartTask won't be called
-      expect(V1ConversationService.getStartTask).not.toHaveBeenCalled();
-      expect(setConversationState).not.toHaveBeenCalled();
-      expect(mockSetSubConversationTaskId).not.toHaveBeenCalled();
-      expect(mockInvalidateQueries).not.toHaveBeenCalled();
-    });
+    expect(V1ConversationService.getStartTask).not.toHaveBeenCalled();
+    expect(result.current.taskStatus).toBeUndefined();
   });
 });

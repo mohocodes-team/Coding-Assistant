@@ -1,31 +1,28 @@
-import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import V1ConversationService from "#/api/conversation-service/v1-conversation-service.api";
-import { setConversationState } from "#/utils/conversation-local-storage";
-import { useConversationStore } from "#/stores/conversation-store";
 
 /**
- * Hook that polls V1 sub-conversation start tasks and invalidates parent conversation cache when ready.
+ * Hook that polls V1 sub-conversation start tasks.
  *
  * This hook:
  * - Polls the V1 start task API every 3 seconds until status is READY or ERROR
- * - Automatically invalidates the parent conversation cache when the task becomes READY
  * - Exposes task status and details for UI components to show loading states and errors
  *
+ * Note: This hook does NOT invalidate the parent conversation cache. The component
+ * that initiates the sub-conversation creation should handle cache invalidation
+ * to ensure it only happens once.
+ *
  * Use case:
- * - When creating a sub-conversation (e.g., plan mode), track the task and refresh parent conversation
- *   data once the sub-conversation is ready
+ * - When creating a sub-conversation (e.g., plan mode), track the task status
+ *   for UI loading states
  *
  * @param taskId - The task ID to poll (from createConversation response)
- * @param parentConversationId - The parent conversation ID to invalidate when ready
+ * @param parentConversationId - The parent conversation ID (used to enable polling)
  */
 export const useSubConversationTaskPolling = (
   taskId: string | null,
   parentConversationId: string | null,
 ) => {
-  const queryClient = useQueryClient();
-  const { setSubConversationTaskId } = useConversationStore();
-
   // Poll the task if we have both taskId and parentConversationId
   const taskQuery = useQuery({
     queryKey: ["sub-conversation-task", taskId],
@@ -48,35 +45,6 @@ export const useSubConversationTaskPolling = (
     },
     retry: false,
   });
-
-  // Invalidate parent conversation cache when task is ready and clear localStorage
-  useEffect(() => {
-    const task = taskQuery.data;
-    if (!parentConversationId) return;
-
-    if (task?.status === "READY" && task.app_conversation_id) {
-      // Invalidate the parent conversation to refetch with updated sub_conversation_ids
-      queryClient.invalidateQueries({
-        queryKey: ["user", "conversation", parentConversationId],
-      });
-      // Clear the task ID from localStorage and store since task completed successfully
-      setConversationState(parentConversationId, {
-        subConversationTaskId: null,
-      });
-      setSubConversationTaskId(null);
-    } else if (task?.status === "ERROR") {
-      // Clear the task ID from localStorage and store on error so user can retry
-      setConversationState(parentConversationId, {
-        subConversationTaskId: null,
-      });
-      setSubConversationTaskId(null);
-    }
-  }, [
-    taskQuery.data,
-    parentConversationId,
-    queryClient,
-    setSubConversationTaskId,
-  ]);
 
   return {
     task: taskQuery.data,
