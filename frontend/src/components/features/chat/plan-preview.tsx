@@ -6,6 +6,7 @@ import { USE_PLANNING_AGENT } from "#/utils/feature-flags";
 import { Typography } from "#/ui/typography";
 import { I18nKey } from "#/i18n/declaration";
 import { MarkdownRenderer } from "#/components/features/markdown/markdown-renderer";
+import { useHandleBuildPlanClick } from "#/hooks/use-handle-build-plan-click";
 import { cn } from "#/utils/utils";
 import { useSelectConversationTab } from "#/hooks/use-select-conversation-tab";
 import { planHeadings } from "#/components/features/markdown/plan-headings";
@@ -15,7 +16,6 @@ const MAX_CONTENT_LENGTH = 300;
 interface PlanPreviewProps {
   /** Raw plan content from PLAN.md file */
   planContent?: string | null;
-  onBuildClick?: () => void;
   /** Whether the Build button should be disabled (e.g., while streaming) */
   isBuildDisabled?: boolean;
 }
@@ -23,11 +23,11 @@ interface PlanPreviewProps {
 /* eslint-disable i18next/no-literal-string */
 export function PlanPreview({
   planContent,
-  onBuildClick,
   isBuildDisabled,
 }: PlanPreviewProps) {
   const { t } = useTranslation();
   const { selectTab } = useSelectConversationTab();
+  const { handleBuildPlanClick } = useHandleBuildPlanClick();
 
   const shouldUsePlanningAgent = USE_PLANNING_AGENT();
 
@@ -96,7 +96,7 @@ export function PlanPreview({
       <div className="border-t border-[#525252] flex h-[54px] items-center justify-start px-4">
         <button
           type="button"
-          onClick={onBuildClick}
+          onClick={handleBuildPlanClick}
           disabled={isBuildDisabled}
           className={cn(
             "bg-white flex items-center justify-center h-[26px] px-2 rounded-[4px] w-[93px] transition-opacity",
