@@ -46,9 +46,9 @@ export function Sidebar() {
         "Something went wrong while fetching settings. Please reload the page.",
       );
     } else if (
-      config?.APP_MODE === "oss" &&
+      config?.app_mode === "oss" &&
       settingsError?.status === 404 &&
-      !config?.FEATURE_FLAGS?.HIDE_LLM_SETTINGS
+      !config?.feature_flags?.hide_llm_settings
     ) {
       setSettingsModalIsOpen(true);
     }
@@ -57,8 +57,8 @@ export function Sidebar() {
     isFetchingSettings,
     settingsIsError,
     settingsError,
-    config?.APP_MODE,
-    config?.FEATURE_FLAGS?.HIDE_LLM_SETTINGS,
+    config?.app_mode,
+    config?.feature_flags?.hide_llm_settings,
   ]);
 
   return (
