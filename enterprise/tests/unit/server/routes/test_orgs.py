@@ -32,6 +32,7 @@ with patch('storage.database.engine', create=True), patch(
         OrgMemberUpdate,
         OrgNameExistsError,
         OrgNotFoundError,
+        OrphanedUserError,
         RoleNotFoundError,
     )
     from server.routes.orgs import (
@@ -1403,30 +1404,52 @@ async def test_delete_org_invalid_uuid(mock_app):
 
 
 @pytest.mark.asyncio
-async def test_delete_org_unauthorized():
+async def test_delete_org_unauthorized(mock_app):
     """
     GIVEN: User is not authenticated
     WHEN: DELETE /api/organizations/{org_id} is called
-    THEN: 401 Unauthorized error is returned
+    THEN: 403 Forbidden error is returned (user not authorized)
     """
     # Arrange
-    app = FastAPI()
-    app.include_router(org_router)
-
-    # Override to simulate unauthenticated user
-    async def mock_unauthenticated():
-        raise HTTPException(status_code=401, detail='User not authenticated')
-
-    app.dependency_overrides[get_admin_user_id] = mock_unauthenticated
-
     org_id = uuid.uuid4()
-    client = TestClient(app)
 
-    # Act
-    response = client.delete(f'/api/organizations/{org_id}')
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(side_effect=OrgAuthorizationError('User not authorized')),
+    ):
+        client = TestClient(mock_app)
 
-    # Assert
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_delete_org_orphaned_users(mock_app):
+    """
+    GIVEN: Deleting org would leave users without any organization
+    WHEN: DELETE /api/organizations/{org_id} is called
+    THEN: 400 Bad Request error is returned with user count in message
+    """
+    # Arrange
+    org_id = uuid.uuid4()
+    orphaned_user_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+
+    with patch(
+        'server.routes.orgs.OrgService.delete_org_with_cleanup',
+        AsyncMock(side_effect=OrphanedUserError(orphaned_user_ids)),
+    ):
+        client = TestClient(mock_app)
+
+        # Act
+        response = client.delete(f'/api/organizations/{org_id}')
+
+        # Assert
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert '2 user(s)' in response.json()['detail']
+        assert 'no remaining organization' in response.json()['detail']
 
 
 @pytest.fixture
