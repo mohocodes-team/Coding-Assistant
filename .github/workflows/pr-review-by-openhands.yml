@@ -13,7 +13,7 @@ on:
     # will only auto-run when the PR author is collaborator/member/owner.
     # For external authors, a maintainer can trigger it by applying the 'review-this' label.
     # The PR code is explicitly checked out for review, but secrets are only accessible
-    # because the workflow runs in the base repository context
+    # because the workflow runs in the base repository context.
     pull_request_target:
         types: [opened, ready_for_review, labeled, review_requested]
 
@@ -54,12 +54,10 @@ jobs:
         concurrency:
             group: pr-review-${{ github.event.pull_request.number }}
             cancel-in-progress: true
-        runs-on: blacksmith-4vcpu-ubuntu-2404
+        runs-on: ubuntu-24.04
         steps:
             - name: Run PR Review
-              # Note: This consolidated action uploads PR review logs as a GitHub Actions artifact
-              # named `openhands-pr-review-logs` (and optionally Laminar trace info).
-              uses: OpenHands/software-agent-sdk/.github/actions/pr-review@main
+              uses: OpenHands/extensions/plugins/pr-review@main
               with:
                   llm-model: litellm_proxy/claude-sonnet-4-5-20250929
                   llm-base-url: https://llm-proxy.app.all-hands.dev
