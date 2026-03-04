@@ -875,7 +875,7 @@ class OrgService:
         Returns:
             bool: True if BYOR export is enabled, False otherwise
         """
-        user = await UserStore.get_user_by_id_async(user_id)
+        user = await UserStore.get_user_by_id(user_id)
         if not user or not user.current_org_id:
             return False
 
@@ -929,7 +929,7 @@ class OrgService:
 
         # Step 3: Update user's current_org_id
         try:
-            updated_user = UserStore.update_current_org(user_id, org_id)
+            updated_user = await UserStore.update_current_org(user_id, org_id)
             if not updated_user:
                 raise OrgDatabaseError('User not found')
 
