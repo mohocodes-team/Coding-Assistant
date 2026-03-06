@@ -13,7 +13,6 @@ from server.auth.auth_error import (
     ExpiredError,
     NoCredentialsError,
 )
-from server.auth.domain_blocker import domain_blocker
 from server.auth.token_manager import TokenManager
 from server.config import get_config
 from server.logger import logger
@@ -24,6 +23,8 @@ from storage.auth_tokens import AuthTokens
 from storage.database import a_session_maker
 from storage.saas_secrets_store import SaasSecretsStore
 from storage.saas_settings_store import SaasSettingsStore
+from storage.user_authorization import UserAuthorizationType
+from storage.user_authorization_store import UserAuthorizationStore
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from openhands.integrations.provider import (
@@ -326,14 +327,16 @@ async def saas_user_auth_from_signed_token(signed_token: str) -> SaasUserAuth:
     email = access_token_payload['email']
     email_verified = access_token_payload['email_verified']
 
-    # Check if email domain is blocked
-    if email and await domain_blocker.is_domain_blocked(email):
-        logger.warning(
-            f'Blocked authentication attempt for existing user with email: {email}'
-        )
-        raise AuthError(
-            'Access denied: Your email domain is not allowed to access this service'
-        )
+    # Check if email is blacklisted (whitelist takes precedence)
+    if email:
+        auth_type = await UserAuthorizationStore.get_authorization_type(email, None)
+        if auth_type == UserAuthorizationType.BLACKLIST:
+            logger.warning(
+                f'Blocked authentication attempt for existing user with email: {email}'
+            )
+            raise AuthError(
+                'Access denied: Your email domain is not allowed to access this service'
+            )
 
     logger.debug('saas_user_auth_from_signed_token:return')
 
