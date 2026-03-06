@@ -52,6 +52,7 @@ dependencies = [
   "libtmux>=0.46.2",
   "litellm!=1.64.4,!=1.67.*,>=1.74.3",
   "lmnr>=0.7.20",
+  "mcp>=1.25",
   "memory-profiler>=0.61",
   "numpy",
   "openai==2.8",
@@ -210,6 +211,7 @@ poetry = "^2.1.2"
 anyio = "4.9.0"
 pythonnet = "*"
 fastmcp = "^2.12.4"           # Note: 2.12.0+ has breaking auth API changes
+mcp = "^1.25.0"               # CVE-2025-66416 fix (DNS rebinding protection)
 python-frontmatter = "^1.1.0"
 shellingham = "^1.5.4"
 # TODO: Should these go into the runtime group?
