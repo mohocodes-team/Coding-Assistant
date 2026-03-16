@@ -80,6 +80,7 @@ class TestLiveStatusAppConversationService:
         self.mock_event_callback_service = Mock()
         self.mock_event_service = Mock()
         self.mock_httpx_client = Mock()
+        self.mock_pending_message_service = Mock()
 
         # Create service instance
         self.service = LiveStatusAppConversationService(
@@ -92,6 +93,7 @@ class TestLiveStatusAppConversationService:
             sandbox_service=self.mock_sandbox_service,
             sandbox_spec_service=self.mock_sandbox_spec_service,
             jwt_service=self.mock_jwt_service,
+            pending_message_service=self.mock_pending_message_service,
             sandbox_startup_timeout=30,
             sandbox_startup_poll_frequency=1,
             max_num_conversations_per_sandbox=20,
@@ -2329,6 +2331,7 @@ class TestPluginHandling:
         self.mock_event_callback_service = Mock()
         self.mock_event_service = Mock()
         self.mock_httpx_client = Mock()
+        self.mock_pending_message_service = Mock()
 
         # Create service instance
         self.service = LiveStatusAppConversationService(
@@ -2341,6 +2344,7 @@ class TestPluginHandling:
             sandbox_service=self.mock_sandbox_service,
             sandbox_spec_service=self.mock_sandbox_spec_service,
             jwt_service=self.mock_jwt_service,
+            pending_message_service=self.mock_pending_message_service,
             sandbox_startup_timeout=30,
             sandbox_startup_poll_frequency=1,
             max_num_conversations_per_sandbox=20,
