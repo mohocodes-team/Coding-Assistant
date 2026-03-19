@@ -57,6 +57,7 @@ export const useUnifiedGetGitChanges = () => {
     retry: false,
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 15, // 15 minutes
+    refetchOnMount: "always", // Always refetch when mounting (e.g. navigating between conversations that share a sandbox)
     enabled: runtimeIsReady && !!conversationId,
     meta: {
       disableToast: true,
