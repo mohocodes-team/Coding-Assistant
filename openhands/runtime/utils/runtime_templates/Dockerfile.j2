@@ -361,6 +361,14 @@ RUN chmod a+rwx /openhands/code/openhands/__init__.py && \
 
 
 # ================================================================
+# Install VSCode extensions for build_from_scratch
+# (must be after setup_vscode_server and source file copy)
+# ================================================================
+{% if build_from_scratch %}
+{{ install_vscode_extensions() }}
+{% endif %}
+
+# ================================================================
 # END: Build from versioned image
 # ================================================================
 {% if build_from_versioned %}
