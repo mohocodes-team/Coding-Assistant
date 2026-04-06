@@ -43,7 +43,12 @@ from openhands.server.user_auth import (
 app = APIRouter(prefix='/api/user', dependencies=get_dependencies())
 
 
-@app.get('/installations', response_model=list[str])
+@app.get(
+    '/installations',
+    response_model=list[str],
+    deprecated=True,
+    description='Deprecated: Use `/api/v1/git/installations` instead.',
+)
 async def get_user_installations(
     provider: ProviderType,
     provider_tokens: PROVIDER_TOKEN_TYPE | None = Depends(get_provider_tokens),
@@ -74,7 +79,12 @@ async def get_user_installations(
     raise AuthenticationError('Git provider token required. (such as GitHub).')
 
 
-@app.get('/repositories', response_model=list[Repository])
+@app.get(
+    '/repositories',
+    response_model=list[Repository],
+    deprecated=True,
+    description='Deprecated: Use `/api/v1/git/repositories` instead.',
+)
 async def get_user_repositories(
     sort: str = 'pushed',
     selected_provider: Annotated[ProviderType | None, Query()] = None,

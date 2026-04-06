@@ -45,7 +45,12 @@ saas_user_router = APIRouter(prefix='/api/user', dependencies=get_dependencies()
 token_manager = TokenManager()
 
 
-@saas_user_router.get('/installations', response_model=list[str])
+@saas_user_router.get(
+    '/installations',
+    response_model=list[str],
+    deprecated=True,
+    description='Deprecated: Use `/api/v1/git/installations` instead.',
+)
 async def saas_get_user_installations(
     provider: ProviderType,
     provider_tokens: PROVIDER_TOKEN_TYPE | None = Depends(get_provider_tokens),
@@ -115,7 +120,12 @@ async def saas_get_user_git_organizations(
     }
 
 
-@saas_user_router.get('/repositories', response_model=list[Repository])
+@saas_user_router.get(
+    '/repositories',
+    response_model=list[Repository],
+    deprecated=True,
+    description='Deprecated: Use `/api/v1/git/repositories` instead.',
+)
 async def saas_get_user_repositories(
     sort: str = 'pushed',
     selected_provider: ProviderType | None = None,
