@@ -324,10 +324,15 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 f'Sending StartConversationRequest with hook_config: '
                 f'{hook_config_in_request}'
             )
+            headers = (
+                {'X-Session-API-Key': sandbox.session_api_key}
+                if sandbox.session_api_key
+                else {}
+            )
             response = await self.httpx_client.post(
                 f'{agent_server_url}/api/conversations',
                 json=body_json,
-                headers={'X-Session-API-Key': sandbox.session_api_key},
+                headers=headers,
                 timeout=self.sandbox_startup_timeout,
             )
 
@@ -875,7 +880,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 static_token = await self.user_context.get_latest_token(provider_type)
                 if static_token:
                     secrets[secret_name] = StaticSecret(
-                        value=static_token, description=description
+                        value=SecretStr(static_token), description=description
                     )
 
         return secrets
@@ -890,7 +895,7 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         Returns:
             Configured LLM instance
         """
-        model = llm_model or user.llm_model
+        model: str = llm_model or user.llm_model or LLM.model_fields['model'].default
         base_url = user.llm_base_url
         if model and (
             model.startswith('openhands/') or model.startswith('litellm_proxy/')
@@ -1155,7 +1160,6 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 system_prompt_filename='system_prompt_planning.j2',
                 system_prompt_kwargs={'plan_structure': format_plan_structure()},
                 condenser=condenser,
-                security_analyzer=None,
                 mcp_config=mcp_config,
             )
         else:
