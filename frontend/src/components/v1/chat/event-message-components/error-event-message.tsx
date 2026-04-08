@@ -12,14 +12,5 @@ export function ErrorEventMessage({ event }: ErrorEventMessageProps) {
     return null;
   }
 
-  return (
-    <div>
-      <ErrorMessage
-        // V1 doesn't have error_id, use event.id instead
-        errorId={event.id}
-        defaultMessage={event.error}
-      />
-      {/* LikertScaleWrapper expects V0 event types, skip for now */}
-    </div>
-  );
+  return <ErrorMessage errorId={event.id} defaultMessage={event.error} />;
 }

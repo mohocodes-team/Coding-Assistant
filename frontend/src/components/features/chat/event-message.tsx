@@ -1,4 +1,3 @@
-import React from "react";
 import { OpenHandsAction } from "#/types/core/actions";
 import {
   isUserMessage,
@@ -11,8 +10,6 @@ import {
   isTaskTrackingObservation,
 } from "#/types/core/guards";
 import { OpenHandsObservation } from "#/types/core/observations";
-import { useConfig } from "#/hooks/query/use-config";
-import { useFeedbackExists } from "#/hooks/query/use-feedback-exists";
 import {
   ErrorEventMessage,
   UserAssistantEventMessage,
@@ -29,7 +26,6 @@ interface EventMessageProps {
   hasObservationPair: boolean;
   isAwaitingUserConfirmation: boolean;
   isLastMessage: boolean;
-  isInLast10Actions: boolean;
 }
 
 /* eslint-disable react/jsx-props-no-spreading */
@@ -38,30 +34,13 @@ export function EventMessage({
   hasObservationPair,
   isAwaitingUserConfirmation,
   isLastMessage,
-  isInLast10Actions,
 }: EventMessageProps) {
   const shouldShowConfirmationButtons =
     isLastMessage && event.source === "agent" && isAwaitingUserConfirmation;
 
-  const { data: config } = useConfig();
-
-  const {
-    data: feedbackData = { exists: false },
-    isLoading: isCheckingFeedback,
-  } = useFeedbackExists(event.id);
-
-  // Common props for components that need them
-  const commonProps = {
-    isLastMessage,
-    isInLast10Actions,
-    config,
-    isCheckingFeedback,
-    feedbackData,
-  };
-
   // Error observations
   if (isErrorObservation(event)) {
-    return <ErrorEventMessage event={event} {...commonProps} />;
+    return <ErrorEventMessage event={event} />;
   }
 
   // Observation pairs with OpenHands actions
@@ -71,7 +50,7 @@ export function EventMessage({
 
   // Finish actions
   if (isFinishAction(event)) {
-    return <FinishEventMessage event={event} {...commonProps} />;
+    return <FinishEventMessage event={event} />;
   }
 
   // User and assistant messages
@@ -80,7 +59,6 @@ export function EventMessage({
       <UserAssistantEventMessage
         event={event}
         shouldShowConfirmationButtons={shouldShowConfirmationButtons}
-        {...commonProps}
       />
     );
   }
