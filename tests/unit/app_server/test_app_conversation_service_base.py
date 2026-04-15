@@ -471,7 +471,7 @@ def test_create_security_analyzer_returns_llm_analyzer():
     result = service._create_security_analyzer_from_string(security_analyzer_str)
 
     # Assert
-    from openhands.sdk.security.llm_analyzer import LLMSecurityAnalyzer
+    from openhands.sdk.security import LLMSecurityAnalyzer
 
     assert isinstance(result, LLMSecurityAnalyzer)
 
@@ -508,7 +508,7 @@ def test_select_confirmation_policy_when_disabled_returns_never_confirm():
     policy = service._select_confirmation_policy(confirmation_mode, security_analyzer)
 
     # Assert
-    from openhands.sdk.security.confirmation_policy import NeverConfirm
+    from openhands.sdk.security import NeverConfirm
 
     assert isinstance(policy, NeverConfirm)
 
@@ -526,7 +526,7 @@ def test_select_confirmation_policy_llm_returns_confirm_risky():
     policy = service._select_confirmation_policy(confirmation_mode, security_analyzer)
 
     # Assert
-    from openhands.sdk.security.confirmation_policy import ConfirmRisky
+    from openhands.sdk.security import ConfirmRisky
 
     assert isinstance(policy, ConfirmRisky)
 
@@ -546,7 +546,7 @@ def test_select_confirmation_policy_non_llm_returns_always_confirm(
     policy = service._select_confirmation_policy(confirmation_mode, security_analyzer)
 
     # Assert
-    from openhands.sdk.security.confirmation_policy import AlwaysConfirm
+    from openhands.sdk.security import AlwaysConfirm
 
     assert isinstance(policy, AlwaysConfirm)
 
