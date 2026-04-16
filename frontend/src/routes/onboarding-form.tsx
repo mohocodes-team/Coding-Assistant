@@ -8,7 +8,6 @@ import { I18nKey } from "#/i18n/declaration";
 import OpenHandsLogoWhite from "#/assets/branding/openhands-logo-white.svg?react";
 import { useSubmitOnboarding } from "#/hooks/mutation/use-submit-onboarding";
 import { useTracking } from "#/hooks/use-tracking";
-import { ENABLE_ONBOARDING } from "#/utils/feature-flags";
 import { cn } from "#/utils/utils";
 import { useMe } from "#/hooks/query/use-me";
 import {
@@ -32,7 +31,7 @@ export const clientLoader = async () => {
 
   // Only allow access to onboarding for SaaS mode (cloud or self-hosted)
   // OSS users should never reach /onboarding
-  if (config?.app_mode !== "saas" || !ENABLE_ONBOARDING()) {
+  if (config?.app_mode !== "saas") {
     return redirect("/");
   }
 
@@ -209,7 +208,7 @@ function OnboardingForm() {
   const translatedInputFields = getTranslatedInputFields(currentStep, t);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center bg-base">
       <div
         data-testid="onboarding-form"
         className="w-[500px] max-w-[calc(100vw-2rem)] mx-auto p-4 sm:p-6 flex flex-col justify-center overflow-hidden"
