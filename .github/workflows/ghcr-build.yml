@@ -108,7 +108,7 @@ jobs:
       packages: write
     steps:
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -236,7 +236,7 @@ jobs:
       packages: write
     steps:
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -375,7 +375,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true
     steps:
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
