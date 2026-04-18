@@ -324,7 +324,7 @@ jobs:
       # Also compute base tags (no arch suffix) for the merge job output
       - name: Extract base metadata for merge
         id: meta_base
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/openhands/enterprise-server
           tags: |
