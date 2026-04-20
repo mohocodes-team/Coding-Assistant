@@ -41,7 +41,7 @@ vi.mock("#/query-client-config", () => ({
 }));
 
 import { redirect } from "react-router";
-import { requirePersonalWorkspaceLoader } from "#/utils/org/personal-workspace-guard";
+import { requireOrgDefaultsRedirect as requirePersonalWorkspaceLoader } from "#/utils/org/saas-redirect-to-org-defaults-guard";
 
 const createRequest = (pathname: string) => ({
   request: new Request(`http://localhost${pathname}`),
@@ -65,14 +65,14 @@ describe("requirePersonalWorkspaceLoader", () => {
     expect(result).toEqual({ type: "redirect", path: "/settings/org-defaults" });
   });
 
-  it("allows access when the active org is the personal workspace", async () => {
+  it("redirects to the org-defaults equivalent even when the active org is the personal workspace", async () => {
     storeOrgId = "personal-org";
     const guard = requirePersonalWorkspaceLoader("/settings/org-defaults");
 
     const result = await guard(createRequest("/settings"));
 
-    expect(result).toBeNull();
-    expect(redirect).not.toHaveBeenCalled();
+    expect(redirect).toHaveBeenCalledWith("/settings/org-defaults");
+    expect(result).toEqual({ type: "redirect", path: "/settings/org-defaults" });
   });
 
   it("skips the guard entirely in OSS mode", async () => {
