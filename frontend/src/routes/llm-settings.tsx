@@ -391,6 +391,8 @@ export function LlmSettingsScreen({
       header={buildHeader}
       buildPayload={buildPayload}
       getInitialView={getInitialView}
+      forceShowAdvancedView
+      allowAllView={!isSaasMode}
       testId="llm-settings-screen"
     />
   );

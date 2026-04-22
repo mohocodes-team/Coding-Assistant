@@ -243,6 +243,49 @@ describe("LlmSettingsScreen", () => {
     expect(screen.getByTestId("base-url-input")).toBeInTheDocument();
   });
 
+  it("shows Advanced and All toggles in OSS mode for the default LLM route schema", async () => {
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(buildSettings());
+
+    renderLlmSettingsScreen({ appMode: "oss" });
+
+    await screen.findByTestId("llm-settings-screen");
+    expect(
+      screen.getByTestId("sdk-section-advanced-toggle"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("sdk-section-all-toggle")).toBeInTheDocument();
+  });
+
+  it("keeps Advanced visible but hides All in SaaS mode for the default LLM route schema", async () => {
+    vi.spyOn(
+      organizationService,
+      "getOrganizationAgentSettings",
+    ).mockResolvedValue(
+      buildSettings({
+        agent_settings: {
+          llm: {
+            model: "openai/gpt-4o",
+          },
+        },
+      }),
+    );
+
+    renderLlmSettingsScreen({ appMode: "saas", scope: "org" });
+
+    await screen.findByTestId("llm-settings-screen");
+    expect(
+      screen.getByTestId("sdk-section-advanced-toggle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("sdk-section-all-toggle"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("sdk-section-advanced-toggle"));
+
+    expect(screen.getByTestId("llm-settings-form-advanced")).toBeInTheDocument();
+    expect(screen.getByTestId("llm-custom-model-input")).toBeInTheDocument();
+    expect(screen.getByTestId("base-url-input")).toBeInTheDocument();
+  });
+
   it("uses schema defaults for custom-rendered advanced fields", async () => {
     const schema = structuredClone(
       MOCK_DEFAULT_USER_SETTINGS.agent_settings_schema!,
