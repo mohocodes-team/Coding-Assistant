@@ -171,10 +171,14 @@ def resolve_provider_llm_base_url(
 
 
 def _get_default_lifespan():
-    # Check legacy parameters for saas mode. If we are in SAAS mode do not apply
-    # OpenHands alembic migrations
+    # Check legacy parameters for saas mode. If we are in SAAS mode use
+    # SaasAppLifespanService to initialize PostHog analytics
     if 'saas' in (os.getenv('OPENHANDS_CONFIG_CLS') or '').lower():
-        return None
+        from server.app_lifespan.saas_app_lifespan_service import (
+            SaasAppLifespanService,
+        )
+
+        return SaasAppLifespanService()
     return OssAppLifespanService()
 
 

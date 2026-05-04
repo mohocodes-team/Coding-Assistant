@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from openhands.analytics import get_analytics_service
 from openhands.app_server.integrations.provider import (
     PROVIDER_TOKEN_TYPE,
     ProviderType,
@@ -196,6 +197,7 @@ async def load_settings(
 async def store_settings(
     payload: dict[str, Any],
     settings_store: SettingsStore = Depends(get_user_settings_store),
+    user_id: str | None = Depends(get_user_id),
 ) -> JSONResponse:
     """Store user settings.
 
@@ -238,6 +240,28 @@ async def store_settings(
                 settings.disabled_skills = existing_settings.disabled_skills
 
         await settings_store.store(settings)
+
+        # Analytics: track settings saved
+        try:
+            analytics = get_analytics_service()
+            if analytics and user_id:
+                from openhands.analytics.analytics_context import AnalyticsContext
+
+                ctx = AnalyticsContext(
+                    user_id=user_id,
+                    consented=settings.user_consents_to_analytics is True,
+                    org_id=None,
+                    user=None,
+                )
+
+                settings_changed = list(payload.keys())
+                analytics.track_settings_saved(
+                    ctx=ctx,
+                    settings_changed=settings_changed,
+                )
+        except Exception:
+            logger.exception('analytics:settings_saved:failed')
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={'message': 'Settings stored'},
