@@ -16013,6 +16013,23 @@
     "uk": "Не вдалося перемкнутися на профіль '{{name}}'",
     "ca": "No s'ha pogut canviar al perfil '{{name}}'"
   },
+  "MODEL$OPEN_SETTINGS": {
+    "en": "Model Settings",
+    "ja": "モデル設定",
+    "zh-CN": "模型设置",
+    "zh-TW": "模型設定",
+    "ko-KR": "모델 설정",
+    "no": "Modellinnstillinger",
+    "it": "Impostazioni modello",
+    "pt": "Configurações do modelo",
+    "es": "Configuración del modelo",
+    "ar": "إعدادات النموذج",
+    "fr": "Paramètres du modèle",
+    "tr": "Model ayarları",
+    "de": "Modelleinstellungen",
+    "uk": "Налаштування моделі",
+    "ca": "Configuració del model"
+  },
   "SECURITY$SELECT_RISK_SEVERITY": {
     "en": "Select risk severity",
     "ja": "リスクの重要度を選択",
