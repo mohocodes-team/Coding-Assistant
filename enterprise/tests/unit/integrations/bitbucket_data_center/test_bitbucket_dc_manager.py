@@ -300,3 +300,42 @@ async def test_send_message_uses_view_user_info_keycloak_id():
         await manager.send_message('Done', _pr_comment_view())
 
     service_cls.assert_called_once_with(external_auth_id='kc-alice')
+
+
+def test_posting_service_uses_bot_token_when_set():
+    """With BITBUCKET_DATA_CENTER_BOT_TOKEN set, the posting service auths as
+    the bot (token=...) and does NOT fall back to the per-user token.
+    """
+    manager = BitbucketDCManager(AsyncMock())
+
+    with patch(
+        'integrations.bitbucket_data_center.bitbucket_dc_manager.BITBUCKET_DATA_CENTER_BOT_TOKEN',
+        'bot-pat-123',
+    ), patch(
+        'integrations.bitbucket_data_center.bitbucket_dc_service.SaaSBitbucketDCService'
+    ) as service_cls:
+        svc = manager._posting_service('kc-alice')
+
+    # Built with no per-user auth; the raw bot token is set directly so the
+    # service sends Bearer. NOT via external_auth_id, and NOT via the token=
+    # constructor arg (which would downgrade it to x-token-auth HTTP Basic,
+    # rejected by Bitbucket Data Center).
+    assert 'external_auth_id' not in service_cls.call_args.kwargs
+    assert svc.token.get_secret_value() == 'bot-pat-123'
+
+
+def test_posting_service_falls_back_to_user_token_when_bot_unset():
+    """Without a bot token, the posting service uses the per-user/installer
+    OAuth token (current behavior).
+    """
+    manager = BitbucketDCManager(AsyncMock())
+
+    with patch(
+        'integrations.bitbucket_data_center.bitbucket_dc_manager.BITBUCKET_DATA_CENTER_BOT_TOKEN',
+        '',
+    ), patch(
+        'integrations.bitbucket_data_center.bitbucket_dc_service.SaaSBitbucketDCService'
+    ) as service_cls:
+        manager._posting_service('kc-alice')
+
+    service_cls.assert_called_once_with(external_auth_id='kc-alice')
