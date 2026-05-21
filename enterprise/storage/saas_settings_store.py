@@ -24,7 +24,10 @@ from storage.user_store import UserStore
 
 from openhands.app_server.settings.settings_models import Settings
 from openhands.app_server.settings.settings_store import SettingsStore
-from openhands.app_server.utils.jsonpatch_compat import deep_merge
+from openhands.app_server.utils.jsonpatch_compat import (
+    deep_merge,
+    deep_merge_with_wholesale_keys,
+)
 from openhands.app_server.utils.llm import is_openhands_model
 
 
@@ -240,7 +243,9 @@ class SaasSettingsStore(SettingsStore):
                 )
 
             effective_agent_settings_diff = self._get_persisted_agent_settings(item)
-            org.agent_settings = deep_merge(
+
+            # Single assignment so SQLAlchemy tracks the change
+            org.agent_settings = deep_merge_with_wholesale_keys(
                 OrgStore.get_agent_settings_from_org(org).model_dump(mode='json'),
                 effective_agent_settings_diff,
             )
