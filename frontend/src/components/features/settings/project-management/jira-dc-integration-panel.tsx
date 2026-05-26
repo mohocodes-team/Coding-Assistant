@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
 import { BrandButton } from "#/components/features/settings/brand-button";
@@ -12,8 +13,11 @@ import { BaseModalTitle } from "#/components/shared/modals/confirmation-modals/b
 import { useConfig } from "#/hooks/query/use-config";
 import { useIntegrationStatus } from "#/hooks/query/use-integration-status";
 import { useConfigureIntegration } from "#/hooks/mutation/use-configure-integration";
+import { useLinkIntegration } from "#/hooks/mutation/use-link-integration";
 import { useUnlinkIntegration } from "#/hooks/mutation/use-unlink-integration";
 import { useUpdateJiraDcWorkspaceStatus } from "#/hooks/mutation/use-update-jira-dc-workspace-status";
+import { useValidateIntegration } from "#/hooks/mutation/use-validate-integration";
+import { displaySuccessToast } from "#/utils/custom-toast-handlers";
 import { CopyableValue, generateWebhookSecret } from "./configure-modal";
 
 const EMAIL_RE = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -48,6 +52,7 @@ function buildJiraDcEventsUrl(workspaceId?: number, serverEventsUrl?: string) {
  */
 export function JiraDcIntegrationPanel() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { data: config } = useConfig();
   // OAuth installs already know the host; pre-fill + lock it.
   const jiraDcOAuthHost = config?.jira_dc_oauth_host ?? null;
@@ -61,9 +66,14 @@ export function JiraDcIntegrationPanel() {
   const { data: integrationData } = useIntegrationStatus("jira-dc");
   const existingWorkspace = integrationData?.workspace;
   const isWorkspaceEditable = existingWorkspace?.editable ?? false;
-  const isActiveIntegration = integrationData?.status === "active";
+  const isActiveIntegration = existingWorkspace
+    ? existingWorkspace.status === "active"
+    : integrationData?.status === "active";
 
   const configureMutation = useConfigureIntegration("jira-dc", {
+    onSettled: () => {},
+  });
+  const linkMutation = useLinkIntegration("jira-dc", {
     onSettled: () => {},
   });
   const unlinkMutation = useUnlinkIntegration("jira-dc", {
@@ -72,10 +82,6 @@ export function JiraDcIntegrationPanel() {
   const statusMutation = useUpdateJiraDcWorkspaceStatus({
     onSettled: () => {},
   });
-  const isBusy =
-    configureMutation.isPending ||
-    unlinkMutation.isPending ||
-    statusMutation.isPending;
 
   const eventsUrl = buildJiraDcEventsUrl(
     existingWorkspace?.id,
@@ -136,6 +142,9 @@ export function JiraDcIntegrationPanel() {
 
   const openEdit = () => {
     seedForm();
+    if (existingWorkspace && !isActiveIntegration) {
+      setIsActive(true);
+    }
     setModalView("edit");
   };
   const openRemove = () => {
@@ -145,12 +154,38 @@ export function JiraDcIntegrationPanel() {
   };
   const closeModal = () => {
     if (manualSetupSaved) {
-      window.location.reload();
-      return;
+      queryClient.invalidateQueries({
+        queryKey: ["integration-status", "jira-dc"],
+      });
     }
     seedForm();
     setRemoveAdminApiKey("");
     setModalView(null);
+  };
+
+  const validateMutation = useValidateIntegration("jira-dc", {
+    onSuccess: (data) => {
+      if (data.data.status === "active") {
+        linkMutation.mutate((jiraDcOAuthHost ?? workspace).trim());
+      }
+    },
+    onError: () => {
+      openEdit();
+    },
+  });
+  const isBusy =
+    configureMutation.isPending ||
+    linkMutation.isPending ||
+    unlinkMutation.isPending ||
+    validateMutation.isPending ||
+    statusMutation.isPending;
+
+  const handleInitialAction = () => {
+    if (jiraDcOAuthHost) {
+      validateMutation.mutate(jiraDcOAuthHost);
+      return;
+    }
+    openEdit();
   };
 
   const handleEmailChange = (value: string) => {
@@ -192,9 +227,28 @@ export function JiraDcIntegrationPanel() {
 
   const handleSubmit = () => {
     if (manualMode && !existingWorkspace && manualEventsUrl) {
-      window.location.reload();
+      statusMutation.mutate(
+        {
+          workspace,
+          isActive: true,
+        },
+        {
+          onSuccess: () => {
+            displaySuccessToast(
+              t(I18nKey.PROJECT_MANAGEMENT$JIRA_DC_WEBHOOK_SETUP_SAVED),
+            );
+            queryClient.invalidateQueries({
+              queryKey: ["integration-status", "jira-dc"],
+            });
+            seedForm();
+            setModalView(null);
+          },
+        },
+      );
       return;
     }
+
+    const shouldGenerateManualDetails = manualMode && !existingWorkspace;
 
     // Manual mode sends the generated secret the admin is copying into Jira;
     // auto mode sends a blank secret (server-generated) + the one-time admin PAT.
@@ -207,17 +261,36 @@ export function JiraDcIntegrationPanel() {
           : serviceAccountEmail,
         serviceAccountApiKey: serviceAccountManaged ? "" : serviceAccountApiKey,
         adminApiKey: manualMode ? "" : adminApiKey.trim(),
-        isActive,
-        reloadOnSuccess: !(manualMode && !existingWorkspace),
-        invalidateOnSuccess: !(manualMode && !existingWorkspace),
+        isActive: shouldGenerateManualDetails ? false : isActive,
+        reloadOnSuccess: false,
+        invalidateOnSuccess: !shouldGenerateManualDetails,
       },
       {
         onSuccess: (data) => {
-          if (manualMode && !existingWorkspace && data.eventsUrl) {
+          if (data.redirect) {
+            return;
+          }
+
+          if (shouldGenerateManualDetails && data.eventsUrl) {
             setManualEventsUrl(data.eventsUrl);
             setManualSetupSaved(true);
             setHasSavedApiKey(true);
+            return;
           }
+
+          if (
+            !manualMode &&
+            adminApiKey.trim() &&
+            data.webhookEnrolled === false
+          ) {
+            return;
+          }
+
+          displaySuccessToast(
+            t(I18nKey.PROJECT_MANAGEMENT$JIRA_DC_WEBHOOK_SETUP_SAVED),
+          );
+          seedForm();
+          setModalView(null);
         },
       },
     );
@@ -226,7 +299,12 @@ export function JiraDcIntegrationPanel() {
   const confirmRemove = () => {
     const trimmedAdminApiKey = removeAdminApiKey.trim();
     if (!trimmedAdminApiKey) return;
-    unlinkMutation.mutate(trimmedAdminApiKey);
+    unlinkMutation.mutate(trimmedAdminApiKey, {
+      onSuccess: () => {
+        setRemoveAdminApiKey("");
+        setModalView(null);
+      },
+    });
   };
 
   const handleActiveToggle = (nextActive: boolean) => {
@@ -258,7 +336,9 @@ export function JiraDcIntegrationPanel() {
       I18nKey.PROJECT_MANAGEMENT$JIRA_DC_GENERATE_WEBHOOK_DETAILS_BUTTON,
     );
   } else if (generatedFirstManualSetup) {
-    submitButtonLabel = t(I18nKey.ENTERPRISE$DONE_BUTTON);
+    submitButtonLabel = t(
+      I18nKey.PROJECT_MANAGEMENT$JIRA_DC_WEBHOOK_CREATED_BUTTON,
+    );
   } else if (existingWorkspace) {
     submitButtonLabel = t(I18nKey.PROJECT_MANAGEMENT$UPDATE_BUTTON_LABEL);
   }
@@ -287,10 +367,10 @@ export function JiraDcIntegrationPanel() {
     ? I18nKey.PROJECT_MANAGEMENT$JIRA_DC_SVC_ACC_API_SAVED_PLACEHOLDER
     : I18nKey.PROJECT_MANAGEMENT$JIRA_DC_SVC_ACC_API_PLACEHOLDER;
 
-  const statusBadge = () => {
+  const statusBadge = (active = isActiveIntegration) => {
     let label: string;
     let classes: string;
-    if (isActiveIntegration) {
+    if (active) {
       label = t(I18nKey.PROJECT_MANAGEMENT$ACTIVE_TOGGLE_LABEL);
       classes = "bg-green-500/20 text-green-400";
     } else {
@@ -551,39 +631,47 @@ export function JiraDcIntegrationPanel() {
                 <td className="px-4 py-3">
                   {isWorkspaceEditable ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      <BrandButton
-                        variant="secondary"
-                        onClick={openEdit}
-                        testId="jira-dc-edit-button"
-                        type="button"
-                        isDisabled={isBusy}
-                      >
-                        {t(
-                          I18nKey.PROJECT_MANAGEMENT$JIRA_DC_EDIT_BUTTON_LABEL,
-                        )}
-                      </BrandButton>
-                      <BrandButton
-                        variant="danger"
-                        onClick={openRemove}
-                        testId="remove-integration-button"
-                        type="button"
-                        isDisabled={isBusy}
-                      >
-                        {t(
-                          I18nKey.PROJECT_MANAGEMENT$JIRA_DC_DISABLE_BUTTON_LABEL,
-                        )}
-                      </BrandButton>
+                      {isActiveIntegration ? (
+                        <BrandButton
+                          variant="danger"
+                          onClick={openRemove}
+                          testId="remove-integration-button"
+                          type="button"
+                          isDisabled={isBusy}
+                        >
+                          {t(
+                            I18nKey.PROJECT_MANAGEMENT$JIRA_DC_DISABLE_BUTTON_LABEL,
+                          )}
+                        </BrandButton>
+                      ) : (
+                        <BrandButton
+                          variant="primary"
+                          onClick={openEdit}
+                          testId="jira-dc-configure-button"
+                          type="button"
+                          isDisabled={isBusy}
+                        >
+                          {t(I18nKey.PROJECT_MANAGEMENT$CONFIGURE_BUTTON_LABEL)}
+                        </BrandButton>
+                      )}
                     </div>
                   ) : (
-                    <BrandButton
-                      variant="secondary"
-                      onClick={() => unlinkMutation.mutate(undefined)}
-                      testId="jira-dc-disconnect-button"
-                      type="button"
-                      isDisabled={isBusy}
-                    >
-                      {t(I18nKey.PROJECT_MANAGEMENT$DISCONNECT_BUTTON_LABEL)}
-                    </BrandButton>
+                    <div className="flex flex-col items-start gap-2">
+                      <BrandButton
+                        variant="secondary"
+                        onClick={() => unlinkMutation.mutate(undefined)}
+                        testId="jira-dc-disconnect-button"
+                        type="button"
+                        isDisabled={isBusy}
+                      >
+                        {t(I18nKey.PROJECT_MANAGEMENT$DISCONNECT_BUTTON_LABEL)}
+                      </BrandButton>
+                      <Typography.Text className="text-xs text-tertiary-alt max-w-56">
+                        {t(
+                          I18nKey.PROJECT_MANAGEMENT$JIRA_DC_INTEGRATION_OWNER_HELP,
+                        )}
+                      </Typography.Text>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -594,12 +682,16 @@ export function JiraDcIntegrationPanel() {
         <div>
           <BrandButton
             variant="primary"
-            onClick={openEdit}
+            onClick={handleInitialAction}
             testId="jira-dc-configure-button"
             type="button"
             isDisabled={isBusy}
           >
-            {t(I18nKey.PROJECT_MANAGEMENT$CONFIGURE_BUTTON_LABEL)}
+            {t(
+              jiraDcOAuthHost
+                ? I18nKey.PROJECT_MANAGEMENT$CONNECT_BUTTON_LABEL
+                : I18nKey.PROJECT_MANAGEMENT$CONFIGURE_BUTTON_LABEL,
+            )}
           </BrandButton>
         </div>
       )}
@@ -639,17 +731,15 @@ export function JiraDcIntegrationPanel() {
               >
                 {submitButtonLabel}
               </BrandButton>
-              {!generatedFirstManualSetup && (
-                <BrandButton
-                  variant="secondary"
-                  onClick={closeModal}
-                  testId="jira-dc-cancel-button"
-                  type="button"
-                  isDisabled={isBusy}
-                >
-                  {t(I18nKey.FEEDBACK$CANCEL_LABEL)}
-                </BrandButton>
-              )}
+              <BrandButton
+                variant="secondary"
+                onClick={closeModal}
+                testId="jira-dc-cancel-button"
+                type="button"
+                isDisabled={isBusy}
+              >
+                {t(I18nKey.FEEDBACK$CANCEL_LABEL)}
+              </BrandButton>
             </div>
           </ModalBody>
         </ModalBackdrop>
@@ -663,9 +753,12 @@ export function JiraDcIntegrationPanel() {
             />
             <div className="flex flex-col gap-4 w-full">
               <div className="flex flex-col gap-3">
-                {sectionLabel(
-                  I18nKey.PROJECT_MANAGEMENT$JIRA_DC_PAUSE_SECTION_LABEL,
-                )}
+                <div className="flex items-center gap-2">
+                  {sectionLabel(
+                    I18nKey.PROJECT_MANAGEMENT$JIRA_DC_PAUSE_SECTION_LABEL,
+                  )}
+                  {statusBadge(isActive)}
+                </div>
                 <div className="flex flex-col gap-1">
                   <SettingsSwitch
                     testId="active-toggle"
@@ -725,7 +818,7 @@ export function JiraDcIntegrationPanel() {
                     testId="cancel-remove-integration-button"
                     type="button"
                   >
-                    {t(I18nKey.FEEDBACK$CANCEL_LABEL)}
+                    {t(I18nKey.SETTINGS_FORM$CLOSE_LABEL)}
                   </BrandButton>
                 </div>
               </div>
