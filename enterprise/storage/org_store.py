@@ -16,7 +16,7 @@ from server.routes.org_models import (
     OrgUpdate,
     OrphanedUserError,
 )
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import joinedload
 from storage.database import a_session_maker
 from storage.lite_llm_manager import LiteLlmManager, get_openhands_cloud_key_alias
@@ -170,6 +170,21 @@ class OrgStore:
             result = await session.execute(select(Org).filter(Org.name == name))
             org = result.scalars().first()
         return await OrgStore._validate_org_version(org)
+
+    @staticmethod
+    async def count_team_orgs() -> int:
+        """Count orgs that are not personal workspaces.
+
+        A personal workspace shares its id with its user, so team orgs are
+        the orgs whose id has no matching user.
+        """
+        async with a_session_maker() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(Org)
+                .where(~select(User.id).where(User.id == Org.id).exists())
+            )
+            return int(result.scalar() or 0)
 
     @staticmethod
     async def _validate_org_version(org: Org | None) -> Org | None:
