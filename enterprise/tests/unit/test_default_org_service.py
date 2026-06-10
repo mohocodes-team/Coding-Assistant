@@ -52,6 +52,15 @@ def test_default_org_config_accepts_one_as_truthy(monkeypatch):
         {'owner@example.com', 'second@example.com', 'third@example.com'}
     )
     assert config.auto_add_users is True
+    assert config.hide_personal_workspaces is False
+
+
+def test_default_org_config_reads_hide_personal_workspaces(monkeypatch):
+    monkeypatch.setenv('HIDE_PERSONAL_WORKSPACES', 'true')
+
+    config = get_default_org_config()
+
+    assert config.hide_personal_workspaces is True
 
 
 @pytest.mark.asyncio
@@ -452,6 +461,126 @@ async def test_existing_owner_creating_org_is_moved_into_it(monkeypatch):
 
     # The configured owner just bootstrapped the org by logging in; land them in it.
     mock_update_current_org.assert_awaited_once_with(str(owner.id), org.id)
+
+
+@pytest.mark.asyncio
+async def test_hide_personal_workspaces_moves_member_parked_on_personal(monkeypatch):
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_ENABLED', 'true')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_NAME', 'Acme')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_OWNER_EMAILS', 'owner@example.com')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_AUTO_ADD_USERS', 'true')
+    monkeypatch.setenv('HIDE_PERSONAL_WORKSPACES', 'true')
+    # _user() parks the user on their personal org (current_org_id == id)
+    member = _user('member@example.com')
+    org = _org()
+    existing_membership = SimpleNamespace(role_id=3)
+
+    with (
+        patch(
+            'storage.default_org_service.OrgStore.get_org_by_name',
+            new_callable=AsyncMock,
+            return_value=org,
+        ),
+        patch(
+            'storage.default_org_service.OrgMemberStore.get_org_member',
+            new_callable=AsyncMock,
+            return_value=existing_membership,
+        ),
+        patch(
+            'storage.default_org_service.UserStore.update_current_org',
+            new_callable=AsyncMock,
+            return_value=member,
+        ) as mock_update_current_org,
+        patch(
+            'storage.default_org_service.UserStore.get_user_by_id',
+            new_callable=AsyncMock,
+            return_value=member,
+        ),
+    ):
+        await DefaultOrgBootstrapService.apply_for_user(member, is_new_user=False)
+
+    # Personal workspaces are hidden, so a member parked on their personal
+    # org is moved into the default org on every login.
+    mock_update_current_org.assert_awaited_once_with(str(member.id), org.id)
+
+
+@pytest.mark.asyncio
+async def test_hide_personal_workspaces_does_not_move_user_in_another_team_org(
+    monkeypatch,
+):
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_ENABLED', 'true')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_NAME', 'Acme')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_OWNER_EMAILS', 'owner@example.com')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_AUTO_ADD_USERS', 'true')
+    monkeypatch.setenv('HIDE_PERSONAL_WORKSPACES', 'true')
+    member = _user('member@example.com')
+    # The user works in some other (team) org — not their personal workspace.
+    member.current_org_id = uuid.uuid4()
+    org = _org()
+    existing_membership = SimpleNamespace(role_id=3)
+
+    with (
+        patch(
+            'storage.default_org_service.OrgStore.get_org_by_name',
+            new_callable=AsyncMock,
+            return_value=org,
+        ),
+        patch(
+            'storage.default_org_service.OrgMemberStore.get_org_member',
+            new_callable=AsyncMock,
+            return_value=existing_membership,
+        ),
+        patch(
+            'storage.default_org_service.UserStore.update_current_org',
+            new_callable=AsyncMock,
+        ) as mock_update_current_org,
+        patch(
+            'storage.default_org_service.UserStore.get_user_by_id',
+            new_callable=AsyncMock,
+            return_value=member,
+        ),
+    ):
+        await DefaultOrgBootstrapService.apply_for_user(member, is_new_user=False)
+
+    mock_update_current_org.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_hide_personal_workspaces_leaves_non_member_on_personal(monkeypatch):
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_ENABLED', 'true')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_NAME', 'Acme')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_OWNER_EMAILS', 'owner@example.com')
+    monkeypatch.setenv('OPENHANDS_DEFAULT_ORG_AUTO_ADD_USERS', 'false')
+    monkeypatch.setenv('HIDE_PERSONAL_WORKSPACES', 'true')
+    member = _user('member@example.com')
+    org = _org()
+
+    with (
+        patch(
+            'storage.default_org_service.OrgStore.get_org_by_name',
+            new_callable=AsyncMock,
+            return_value=org,
+        ),
+        patch(
+            'storage.default_org_service.OrgMemberStore.get_org_member',
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            'storage.default_org_service.UserStore.update_current_org',
+            new_callable=AsyncMock,
+        ) as mock_update_current_org,
+        patch(
+            'storage.default_org_service.UserStore.get_user_by_id',
+            new_callable=AsyncMock,
+            return_value=member,
+        ),
+    ):
+        await DefaultOrgBootstrapService.apply_for_user(member, is_new_user=False)
+
+    # Not a member of the default org (auto-add off): never strand the user
+    # with zero workspaces — they stay on personal and the UI keeps showing it.
+    mock_update_current_org.assert_not_called()
 
 
 @pytest.mark.asyncio

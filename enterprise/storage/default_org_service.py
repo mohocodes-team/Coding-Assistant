@@ -38,6 +38,7 @@ class DefaultOrgConfig:
     org_name: str
     owner_emails: frozenset[str]
     auto_add_users: bool
+    hide_personal_workspaces: bool
 
 
 def _env_value(name: str, *aliases: str, default: str = '') -> str:
@@ -80,6 +81,10 @@ def get_default_org_config() -> DefaultOrgConfig:
             'OPENHANDS_DEFAULT_ORG_AUTO_ADD_USERS',
             'OH_DEFAULT_ORG_AUTO_ADD_USERS',
         ),
+        # Same env var the web client config injector reads to hide personal
+        # workspaces in the UI; here it additionally moves users out of a
+        # personal current org on login (there is no visible way to be there).
+        hide_personal_workspaces=_env_truthy('HIDE_PERSONAL_WORKSPACES'),
     )
 
 
@@ -144,6 +149,20 @@ class DefaultOrgBootstrapService:
             (is_new_user or org_created_by_user)
             and await OrgMemberStore.get_org_member(org.id, user.id) is not None
         )
+
+        # When personal workspaces are hidden there is no visible way to be
+        # in one, so members parked on their personal org (e.g. from before
+        # the flag was enabled) are moved on every login.
+        if (
+            not should_set_current_org
+            and config.hide_personal_workspaces
+            and user.current_org_id == user.id
+        ):
+            should_set_current_org = (
+                outcome is MembershipOutcome.PROMOTED
+                or await OrgMemberStore.get_org_member(org.id, user.id) is not None
+            )
+
         if should_set_current_org:
             updated_user = await UserStore.update_current_org(str(user.id), org.id)
             if updated_user:
