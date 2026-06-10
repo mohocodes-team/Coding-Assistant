@@ -3,6 +3,7 @@
 import os
 import re
 from dataclasses import dataclass
+from enum import Enum
 from uuid import UUID
 
 from pydantic import SecretStr
@@ -21,6 +22,14 @@ from openhands.app_server.utils.logger import openhands_logger as logger
 
 _TRUTHY_VALUES = {'1', 'true', 'yes', 'on'}
 _EMAIL_SPLIT_RE = re.compile(r'[\s,;]+')
+
+
+class MembershipOutcome(Enum):
+    """Result of ensuring a user's membership in the default org."""
+
+    ADDED = 'added'
+    PROMOTED = 'promoted'
+    UNCHANGED = 'unchanged'
 
 
 @dataclass(frozen=True)
@@ -103,7 +112,7 @@ class DefaultOrgBootstrapService:
             return user
 
         is_configured_owner = user_email in config.owner_emails
-        org = await DefaultOrgBootstrapService._get_or_create_org(
+        org, org_created_by_user = await DefaultOrgBootstrapService._get_or_create_org(
             config=config,
             current_user=user,
             current_user_is_owner=is_configured_owner,
@@ -116,19 +125,30 @@ class DefaultOrgBootstrapService:
             )
             return user
 
-        await DefaultOrgBootstrapService._ensure_membership(
+        outcome = await DefaultOrgBootstrapService._ensure_membership(
             org=org,
             user=user,
             is_configured_owner=is_configured_owner,
             auto_add_users=config.auto_add_users,
         )
 
-        if is_new_user and await OrgMemberStore.get_org_member(org.id, user.id):
+        # Move the user into the default org on their first join (signup,
+        # first auto-add, or owner-created org); never on later logins, so a
+        # deliberate switch back to the personal workspace sticks.
+        should_set_current_org = outcome is MembershipOutcome.ADDED or (
+            (is_new_user or org_created_by_user)
+            and await OrgMemberStore.get_org_member(org.id, user.id) is not None
+        )
+        if should_set_current_org:
             updated_user = await UserStore.update_current_org(str(user.id), org.id)
             if updated_user:
                 logger.info(
-                    'default_org_bootstrap:set_new_user_current_org',
-                    extra={'user_id': str(user.id), 'org_id': str(org.id)},
+                    'default_org_bootstrap:set_current_org',
+                    extra={
+                        'user_id': str(user.id),
+                        'org_id': str(org.id),
+                        'is_new_user': is_new_user,
+                    },
                 )
                 return await UserStore.get_user_by_id(str(user.id)) or updated_user
 
@@ -139,7 +159,14 @@ class DefaultOrgBootstrapService:
         config: DefaultOrgConfig,
         current_user: User,
         current_user_is_owner: bool,
-    ) -> Org | None:
+    ) -> tuple[Org | None, bool]:
+        """Find or lazily create the default org.
+
+        Returns (org, created_by_current_user) where the flag is True only
+        when the org was created in this call with the current user as its
+        owner — not on adoption, race recovery, or creation under a
+        different configured owner.
+        """
         org = await OrgStore.get_org_by_name(config.org_name)
         if org:
             if DefaultOrgBootstrapService._is_personal_workspace_org(org):
@@ -147,13 +174,13 @@ class DefaultOrgBootstrapService:
                     'default_org_bootstrap:refusing_personal_workspace_org',
                     extra={'org_id': str(org.id), 'org_name': org.name},
                 )
-                return None
+                return None, False
 
             logger.info(
                 'default_org_bootstrap:adopting_existing_org',
                 extra={'org_id': str(org.id), 'org_name': org.name},
             )
-            return org
+            return org, False
 
         owner_user = current_user if current_user_is_owner else None
         if owner_user is None:
@@ -162,16 +189,17 @@ class DefaultOrgBootstrapService:
             )
 
         if owner_user is None:
-            return None
+            return None, False
 
         owner_email = (owner_user.email or '').strip().lower()
         try:
-            return await OrgService.create_org_with_owner(
+            created_org = await OrgService.create_org_with_owner(
                 name=config.org_name,
                 contact_name=owner_email or 'Default organization owner',
                 contact_email=owner_email,
                 user_id=str(owner_user.id),
             )
+            return created_org, owner_user.id == current_user.id
         except OrgNameExistsError:
             # A concurrent login may have created the org after our first lookup.
             org = await OrgStore.get_org_by_name(config.org_name)
@@ -180,8 +208,8 @@ class DefaultOrgBootstrapService:
                     'default_org_bootstrap:refusing_personal_workspace_org',
                     extra={'org_id': str(org.id), 'org_name': org.name},
                 )
-                return None
-            return org
+                return None, False
+            return org, False
 
     @staticmethod
     def _is_personal_workspace_org(org: Org) -> bool:
@@ -201,7 +229,7 @@ class DefaultOrgBootstrapService:
         user: User,
         is_configured_owner: bool,
         auto_add_users: bool,
-    ) -> bool:
+    ) -> MembershipOutcome:
         membership = await OrgMemberStore.get_org_member(org.id, user.id)
         desired_role_name = ROLE_OWNER if is_configured_owner else ROLE_MEMBER
 
@@ -212,10 +240,10 @@ class DefaultOrgBootstrapService:
                     user_id=user.id,
                     membership=membership,
                 )
-            return False
+            return MembershipOutcome.UNCHANGED
 
         if not is_configured_owner and not auto_add_users:
-            return False
+            return MembershipOutcome.UNCHANGED
 
         role = await RoleStore.get_role_by_name(desired_role_name)
         if not role:
@@ -223,7 +251,7 @@ class DefaultOrgBootstrapService:
                 'default_org_bootstrap:role_not_found',
                 extra={'role': desired_role_name, 'org_id': str(org.id)},
             )
-            return False
+            return MembershipOutcome.UNCHANGED
 
         llm_api_key = await DefaultOrgBootstrapService._create_member_litellm_api_key(
             org_id=org.id,
@@ -247,7 +275,7 @@ class DefaultOrgBootstrapService:
                 'role': desired_role_name,
             },
         )
-        return True
+        return MembershipOutcome.ADDED
 
     @staticmethod
     async def _create_member_litellm_api_key(org_id: UUID, user_id: UUID) -> str:
@@ -263,10 +291,10 @@ class DefaultOrgBootstrapService:
         org_id: UUID,
         user_id: UUID,
         membership: OrgMember,
-    ) -> bool:
+    ) -> MembershipOutcome:
         current_role = await RoleStore.get_role_by_id(membership.role_id)
         if current_role and current_role.name == ROLE_OWNER:
-            return False
+            return MembershipOutcome.UNCHANGED
 
         owner_role = await RoleStore.get_role_by_name(ROLE_OWNER)
         if not owner_role:
@@ -274,7 +302,7 @@ class DefaultOrgBootstrapService:
                 'default_org_bootstrap:role_not_found',
                 extra={'role': ROLE_OWNER, 'org_id': str(org_id)},
             )
-            return False
+            return MembershipOutcome.UNCHANGED
 
         await OrgMemberStore.update_user_role_in_org(
             org_id=org_id,
@@ -286,4 +314,4 @@ class DefaultOrgBootstrapService:
             'default_org_bootstrap:member_promoted_to_owner',
             extra={'user_id': str(user_id), 'org_id': str(org_id)},
         )
-        return True
+        return MembershipOutcome.PROMOTED
