@@ -78,6 +78,14 @@ const normalizeBaseUrl = (baseUrl: string) => {
 };
 
 const isProviderDefaultBaseUrl = (model: string, baseUrl: string) => {
+  // For openhands/* models, base_url is server-owned (auto-filled on save) —
+  // never treat it as user customization that warrants the advanced view.
+  // Accepted edge case: a deliberately customized base_url on an openhands/*
+  // model also lands on basic; values are preserved, Advanced is a click away.
+  if (model.startsWith("openhands/")) {
+    return true;
+  }
+
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const { provider } = extractModelAndProvider(model);
 
