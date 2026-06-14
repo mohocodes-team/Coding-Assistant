@@ -20,7 +20,11 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 from storage.database import a_session_maker
-from storage.lite_llm_manager import LiteLlmManager, get_openhands_cloud_key_alias
+from storage.lite_llm_manager import (
+    LiteLlmManager,
+    get_openhands_cloud_key_alias,
+    get_org_team_alias,
+)
 from storage.org import Org
 from storage.org_git_claim import OrgGitClaim
 from storage.org_invitation import OrgInvitation
@@ -400,6 +404,8 @@ class OrgStore:
             if not org:
                 return None
 
+            old_name = org.name
+
             if 'id' in org_kwargs:
                 org_kwargs.pop('id')
 
@@ -466,6 +472,22 @@ class OrgStore:
 
             await session.commit()
             await session.refresh(org)
+
+            # Keep the LiteLLM team_alias in sync with the org's display name so
+            # the proxy dashboard stays readable after a rename. Best-effort —
+            # never fail an org update because the proxy is briefly unreachable.
+            if org.name != old_name:
+                try:
+                    await LiteLlmManager.update_team(
+                        str(org.id),
+                        get_org_team_alias(str(org.id), org.name, user_id),
+                        None,
+                    )
+                except Exception:
+                    logger.warning(
+                        'Failed to propagate org rename to LiteLLM team_alias',
+                        extra={'org_id': str(org.id)},
+                    )
             return org
 
     @staticmethod
@@ -843,18 +865,9 @@ class OrgStore:
         ):
             return existing_key_raw
 
-        if openhands_type:
-            logger.info(
-                'Generated managed LLM key for acting user on org-defaults save',
-                extra={'user_id': user_id, 'org_id': str(updated_org.id)},
-            )
-            return await LiteLlmManager.generate_key(
-                user_id,
-                str(updated_org.id),
-                None,
-                {'type': 'openhands'},
-            )
-
+        # One managed key per (user, org) under the same deterministic alias,
+        # deleting any prior key first — symmetric across openhands/* and BYOR
+        # defaults so switching between them never orphans a key.
         key_alias = get_openhands_cloud_key_alias(user_id, str(updated_org.id))
         await LiteLlmManager.delete_key_by_alias(key_alias=key_alias)
         logger.info(
@@ -865,7 +878,7 @@ class OrgStore:
             user_id,
             str(updated_org.id),
             key_alias,
-            None,
+            {'type': 'openhands'} if openhands_type else None,
         )
 
     @staticmethod
