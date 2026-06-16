@@ -2,6 +2,7 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -9,7 +10,8 @@ import pytest
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from integrations.jira_dc.jira_dc_service_account import JiraDcServiceAccount
-from pydantic import ValidationError
+from integrations.jira_dc.jira_dc_user_token import JiraDcUserToken
+from pydantic import SecretStr, ValidationError
 from server.auth.saas_user_auth import SaasUserAuth
 from server.routes.integration.jira_dc import (
     JiraDcLinkCreate,
@@ -19,6 +21,7 @@ from server.routes.integration.jira_dc import (
     create_jira_dc_workspace,
     create_workspace_link,
     get_current_workspace_link,
+    get_jira_dc_secret_token,
     jira_dc_callback,
     jira_dc_connection_events,
     unlink_workspace,
@@ -139,6 +142,52 @@ def mock_user_auth():
         '00000000-0000-0000-0000-000000000123'
     )
     return auth
+
+
+@pytest.mark.asyncio
+@patch(
+    'server.routes.integration.jira_dc.get_user_jira_dc_token', new_callable=AsyncMock
+)
+@patch('server.routes.integration.jira_dc.jira_dc_manager')
+async def test_get_jira_dc_secret_token_success(mock_manager, mock_get_token):
+    store = AsyncMock()
+    mock_manager.integration_store = store
+    store.get_workspace_by_id.return_value = SimpleNamespace(
+        id=7,
+        name='jira.example.com',
+        status='active',
+    )
+    store.get_active_user_by_keycloak_id_and_workspace.return_value = MagicMock()
+    mock_get_token.return_value = JiraDcUserToken(
+        access_token=SecretStr('plain-token'), expires_at=0
+    )
+    jwt_service = MagicMock()
+    jwt_service.verify_jws_token.return_value = {
+        'integration': 'jira_dc',
+        'secret_name': 'JIRA_DC_TOKEN',
+        'user_id': 'kc-user',
+        'workspace_id': 7,
+    }
+
+    with (
+        patch('server.routes.integration.jira_dc.JIRA_DC_ENABLE_OAUTH', True),
+        patch(
+            'server.routes.integration.jira_dc.JIRA_DC_BASE_URL',
+            'https://jira.example.com',
+        ),
+    ):
+        response = await get_jira_dc_secret_token(
+            access_token='signed-token',
+            jwt_service=jwt_service,
+        )
+
+    assert response.body == b'plain-token'
+    store.get_workspace_by_id.assert_awaited_once_with(7)
+    store.get_active_user_by_keycloak_id_and_workspace.assert_awaited_once_with(
+        'kc-user',
+        7,
+    )
+    mock_get_token.assert_awaited_once()
 
 
 @pytest.mark.asyncio
