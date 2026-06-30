@@ -1245,6 +1245,8 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 'base_url': base_url,
                 'api_key': user.agent_settings.llm.api_key,
                 'usage_id': 'agent',
+                # Force streaming on (the SDK LLM defaults stream=False).
+                'stream': True,
             }
         )
 
