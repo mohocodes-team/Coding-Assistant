@@ -741,7 +741,14 @@ def get_api_key_from_header(request: Request):
         return session_api_key
 
     # Fallback to X-Access-Token header as an additional option
-    return request.headers.get('X-Access-Token')
+    x_access_token = request.headers.get('X-Access-Token')
+    if x_access_token:
+        return x_access_token
+
+    # Fallback to the `api_key` cookie, which mirrors the X-Access-Token header
+    # Security note: This cookie MUST be marked `Secure; HttpOnly; SameSite=Strict`
+    # (or `Lax`) to mitigate CSRF and XSS risks.
+    return request.cookies.get('api_key')
 
 
 async def saas_user_auth_from_bearer(request: Request) -> SaasUserAuth | None:
