@@ -156,6 +156,16 @@ def test_localhost_cors_middleware_cors_parameters():
             assert kwargs['allow_headers'] == ['*']
 
 
+def test_in_memory_rate_limiter_init():
+    """Test that InMemoryRateLimiter correctly initializes all attributes."""
+    rate_limiter = InMemoryRateLimiter(requests=5, seconds=10, sleep_seconds=2)
+
+    assert rate_limiter.requests == 5
+    assert rate_limiter.seconds == 10
+    assert rate_limiter.sleep_seconds == 2
+    assert isinstance(rate_limiter.history, dict)
+
+
 def test_rate_limit_middleware_exempts_sandbox_resume():
     """Resume requests should not compete with bursty reopen polling."""
     app = FastAPI()
