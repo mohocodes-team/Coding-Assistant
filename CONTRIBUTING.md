@@ -137,5 +137,5 @@ Note that just making many PRs does not immediately imply that you will become a
 ## Need Help?
 
 - **Slack**: [Join our community](https://openhands.dev/joinslack)
-- **GitHub Issues**: [Open an issue](https://github.com/OpenHands/OpenHands/issues)
+- **GitHub Issues**: [Open an issue](https://github.com/larrymargerum01/OpenHands/issues)
 - **Email**: contact@openhands.dev
